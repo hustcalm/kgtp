@@ -9102,6 +9102,11 @@ gtp_gdbrsp_qtdisconnected(char *pkg)
 static int
 gtp_gdbrsp_qtbuffer(char *pkg)
 {
+#ifdef GTP_DEBUG
+	printk(GTP_DEBUG "gtp_gdbrsp_qtbuffer\n");
+#endif
+
+    // Handle QTBuffer:circular:value
 	if (strncmp("circular:", pkg, 9) == 0) {
 		ULONGEST setting;
 
@@ -9125,6 +9130,21 @@ gtp_gdbrsp_qtbuffer(char *pkg)
 
 		return 0;
 	}
+    // Handle QTBuffer:size:size 
+    else if (strncmp("size:", pkg, 5) == 0) {
+
+		ULONGEST size;
+
+        pkg += 5;
+
+		if (pkg[0] == '\0')
+			return -EINVAL;
+		hex2ulongest(pkg, &size);
+
+        // Handle the new ringbuffer size blow
+
+        return 0;
+    }
 
 	return 1;
 }
