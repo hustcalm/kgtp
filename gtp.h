@@ -23,7 +23,7 @@
 
 #define GTP_SP_NUM		4
 #define GTP_PC_NUM		8
-#else
+#else // X86_64
 #define GTP_REG_ASCII_SIZE	296
 #define GTP_REG_BIN_SIZE	148
 
@@ -32,7 +32,7 @@
 #endif
 
 #define GTP_X86_NEED_ADJUST_PC(gts)	(!(gts)->step && !(gts)->hwb && (gts)->tpe->type != gtp_entry_uprobe)
-#endif
+#endif // end for ifdef CONFIG_X86
 
 #ifdef CONFIG_MIPS
 #define ULONGEST		uint64_t
@@ -51,7 +51,7 @@
 
 #define GTP_SP_NUM		29
 #define GTP_PC_NUM		37
-#endif
+#endif // end for ifdef CONFIG_MIPS
 
 #ifdef CONFIG_ARM
 #define ULONGEST		uint64_t
@@ -65,7 +65,7 @@
 
 #define GTP_SP_NUM		13
 #define GTP_PC_NUM		15
-#endif
+#endif // end for ifdef CONFIG_ARM
 
 struct gtp_var;
 

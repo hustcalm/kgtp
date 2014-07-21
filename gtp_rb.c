@@ -60,7 +60,7 @@ struct gtp_rb_s {
 	int		cpu;
 };
 
-static struct gtp_rb_s __percpu	*gtp_rb;
+static struct gtp_rb_s __percpu	*gtp_rb; // A ring_buffer for each CPU
 #if defined(CONFIG_ARM) && (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,34))
 static atomic_t				gtp_rb_count;
 #else
@@ -69,15 +69,20 @@ static atomic64_t			gtp_rb_count;
 static unsigned int		gtp_rb_page_count;
 static atomic_t			gtp_rb_discard_page_number;
 
+/**
+ * Initiailize the ring buffer
+ */
 static int
 gtp_rb_init(void)
 {
 	int	cpu;
 
+    // Allocate memory of ring buffer entry for each CPU
 	gtp_rb = alloc_percpu(struct gtp_rb_s);
 	if (!gtp_rb)
 		return -ENOMEM;
 
+    // Initialize by iterating each CPU
 	for_each_online_cpu(cpu) {
 		struct gtp_rb_s	*rb
 			= (struct gtp_rb_s *)per_cpu_ptr(gtp_rb, cpu);
@@ -91,6 +96,9 @@ gtp_rb_init(void)
 	return 0;
 }
 
+/**
+ * Free the ring buffer
+ */
 static void
 gtp_rb_release(void)
 {
@@ -100,6 +108,9 @@ gtp_rb_release(void)
 	}
 }
 
+/**
+ * Reset the ring buffer
+ */
 static void
 gtp_rb_reset(void)
 {
@@ -120,6 +131,7 @@ gtp_rb_reset(void)
 #else
 	atomic64_set(&gtp_rb_count, 0);
 #endif
+
 	atomic_set(&gtp_rb_discard_page_number, 0);
 }
 
@@ -134,6 +146,8 @@ re_inc:
 #else
 	ret = atomic64_inc_return(&gtp_rb_count);
 #endif
+
+    // Failed and retry?
 	if (ret == 0)
 		goto re_inc;
 
@@ -142,6 +156,9 @@ re_inc:
 
 #define GTP_RB_PAGE_IS_EMPTY	(gtp_rb_page_count == 0)
 
+/**
+ * Allocate memory of size for pages in ring buffer, echa page is PAGE_SIZE large
+ */
 static int
 gtp_rb_page_alloc(int size)
 {
@@ -167,6 +184,7 @@ gtp_rb_page_alloc(int size)
 						GFP_KERNEL, 0);
 			if (!page)
 				return -1;
+
 			gtp_rb_page_count++;
 			rb->w = GTP_RB_DATA(page_address(page));
 			GTP_RB_NEXT(rb->w) = next;
@@ -188,6 +206,9 @@ gtp_rb_page_alloc(int size)
 	return 0;
 }
 
+/**
+ * Free all the pages allocated before
+ */
 static void
 gtp_rb_page_free(void)
 {
@@ -207,6 +228,7 @@ gtp_rb_page_free(void)
 			need_free = GTP_RB_HEAD(rb->w);
 			is_first = 0;
 		}
+
 		if (need_free)
 			free_page((unsigned long)need_free);
 	}
@@ -220,18 +242,27 @@ gtp_rb_page_free(void)
 #define GTP_RB_UNLOCK_IRQ(r, flags)	spin_unlock_irqrestore(&r->lock, flags)
 #define GTP_RB_RELEASE(r)		(r->w = r->prev_w)
 
+/**
+ * Retrieve the previous frame
+ */
 static inline void *
 gtp_rb_prev_frame_get(struct gtp_rb_s *rb)
 {
 	return rb->prev_frame;
 }
 
+/**
+ * Set the previous frame
+ */
 static inline void
 gtp_rb_prev_frame_set(struct gtp_rb_s *rb, void *prev_frame)
 {
 	rb->prev_frame = prev_frame;
 }
 
+/**
+ * Allocate memory for the frame data, max size is GTP_RB_DATA_MAX
+ */
 static void *
 gtp_rb_alloc(struct gtp_rb_s *rb, size_t size, u64 id)
 {
@@ -258,6 +289,7 @@ gtp_rb_alloc(struct gtp_rb_s *rb, size_t size, u64 id)
 
 		if (GTP_RB_HEAD(GTP_RB_NEXT(rb->w)) == GTP_RB_HEAD(rb->r)) {
 			if (gtp_circular) {
+                // We are using circular ring buffer, so we have to discard pages if full
 				rb->r = GTP_RB_NEXT(rb->r);
 				atomic_inc(&gtp_rb_discard_page_number);
 			} else
@@ -425,6 +457,8 @@ gtp_rb_walk_reverse(void *buf, void *begin)
 {
 	if (buf == begin)
 		return NULL;
+    
+    // Where is begin used?
 	buf = *(void **)(buf + FID_SIZE + sizeof(u64) + sizeof(ULONGEST));
 
 	return buf;

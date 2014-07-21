@@ -28,7 +28,7 @@
 #define RHEL_RELEASE_CODE		0
 #endif
 
-/* Sepcial config ------------------------------------------------ */
+/* Sepcial config */
 #define GTP_RB
 
 #ifdef GTP_FRAME_SIMPLE
@@ -36,25 +36,28 @@
    This define is for simple frame alloc record, then we can get how many
    memory are weste by FRAME_ALIGN. */
 /* #define FRAME_ALLOC_RECORD */
-#undef GTP_RB
+#undef GTP_RB // GTP_FRAME_SIMPLE and GTP_RB are not used at the same time
 #endif
 
 #ifdef GTP_FTRACE_RING_BUFFER
-#undef GTP_RB
+#undef GTP_RB // GTP_FTRACE_RING_BUFFER and GTP_RB are not used at the same time
 #endif
 
 /* If define USE_PROC, KGTP will use ProcFS instead DebugFS.  */
 #ifndef GTP_NO_AUTO_BUILD
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,11))
 #define USE_PROC
-#endif
-#endif
+#endif // ProcFS is used if the kernel version is low
+#endif // end for ifndef GTP_NO_AUTO_BUILD
+
+/* If user intends to use DebugFS but got problems, give hints to use ProcFS instead. */
 #ifndef USE_PROC
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,11))
 #warning If got some build error about debugfs, you can use "USE_PROC=1" handle it.
 #endif
 #endif
 
+/* If user intends to use FTRACE_RING_BUFFER but got problems, give hints to use FRAME_SIMPLE instead. */
 #ifdef GTP_FTRACE_RING_BUFFER
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,30))
 #warning If got some build error about ring buffer, you can use "FRAME_SIMPLE=1" handle it.
@@ -66,7 +69,8 @@
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,24))
 #define GTP_CLOCK_CYCLE
 #endif
-#endif
+#endif // end for ifndef GTP_NO_AUTO_BUILD
+
 #ifndef GTP_CLOCK_CYCLE
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,24))
 #warning If got some build error about cpu_clock or local_clock, you can use "CLOCK_CYCLE=1" handle it.
@@ -82,18 +86,20 @@
 #define CONFIG_RING_BUFFER
 #include "ring_buffer.h"
 #include "ring_buffer.c"
-#define GTP_SELF_RING_BUFFER
+#define GTP_SELF_RING_BUFFER // use the modified ring buffer from Linux kernel
 #warning Use the ring buffer inside KGTP.
+#endif // end for ifndef CONFIG_RING_BUFFER
 #endif
-#endif
-/* Sepcial config ------------------------------------------------ */
+/* Sepcial config */
 
 #include <linux/kernel.h>
+
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,14,0))
 #undef MODULE
 #include <linux/preempt.h>
 #define MODULE
 #endif
+
 #include <linux/module.h>
 #include <linux/uaccess.h>
 #include <linux/vmalloc.h>
@@ -108,100 +114,107 @@
 #include <linux/slab.h>
 #include <linux/ctype.h>
 #include <asm/atomic.h>
+
 #ifdef CONFIG_X86
 #include <asm/debugreg.h>
 #endif
+
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,22))
 #include <linux/kdebug.h>
 #else
 #include <asm/kdebug.h>
 #endif
+
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,0,0))
 #include <linux/hw_breakpoint.h>
 #endif
+
 #include "gtp.h"
 
 #ifdef GTP_FTRACE_RING_BUFFER
 #ifndef GTP_SELF_RING_BUFFER
-#include <linux/ring_buffer.h>
+#include <linux/ring_buffer.h> // use the standard ring buffer provided by Linux kernel
 #endif
 #endif
+
 #ifdef CONFIG_PERF_EVENTS
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,33)) \
-    && (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,1))
+    && (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,1)) // Kernel too old, no perf support
 #warning "Current Kernel is too old.  Function of performance counters is not available."
-#else
+#else // Kernel is new enough
 #include <linux/perf_event.h>
 #define GTP_PERF_EVENTS
 #endif
-#else
+#else // CONFIG_PERF_EVENTS not defined
 #warning "Current Kernel doesn't open CONFIG_PERF_EVENTS.  Function of performance counters is not available."
 #endif
 
-/* Handle KGTP_API_VERSION for the special kernel that include KGTP_API.  */
+/* Handle KGTP_API_VERSION for the special kernel that includes KGTP_API. */
 #ifdef KGTP_API_VERSION
 #define KGTP_API_VERSION_LOCAL	KGTP_API_VERSION
 #else
 #define KGTP_API_VERSION_LOCAL	0
 #endif
 
+/* Handle percpu */
 #ifndef __percpu
 #define __percpu
 #endif
 
+/* Get the pointer of the related CPU. */
 #ifndef this_cpu_ptr
 #define this_cpu_ptr(v)	per_cpu_ptr(v, smp_processor_id())
 #endif
 
+/* Debug Level defined. */
 #define KERN_NULL
 
-/* check ---------------------------------------------------------- */
-#ifndef CONFIG_KPROBES
+/* check the kernel configs to see whether all the related dependencies are opened. */
+#ifndef CONFIG_KPROBES // Kernel tracing is based on KPROBES
 #warning "Cannot trace Linux kernel because Linux Kernel config doesn't open KPROBES.  Please open it in 'General setup->Kprobes' if you need it."
 #endif
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,9,0))
-#ifndef CONFIG_UPROBES
+#ifndef CONFIG_UPROBES // User application tracing is based on UPROBES
 #warning "Cannot trace user program because Linux Kernel config doesn't open UPROBES.  Please open it in 'Kernel hacking->Tracers->Enable uprobes-based dynamic events' if you need it."
 #endif
-#else
+#else // Only new enough kernels support UPROBES
 #warning "Cannot trace user program because the Linux Kernel that older than 3.9 doesn't support UPROBES."
 #endif
 
-#ifdef USE_PROC
+#ifdef USE_PROC // ProcFS used
 #ifndef CONFIG_PROC_FS
 #error "Linux Kernel doesn't support procfs."
 #endif
-#else
+#else // ProcFS not used
 #ifndef CONFIG_DEBUG_FS
 #error "Linux Kernel doesn't support debugfs."
 #endif
 #endif
 
 #if !defined CONFIG_X86 && !defined CONFIG_MIPS && !defined CONFIG_ARM
-#error "KGTP support X86_32, X86_64, MIPS and ARM."
+#error "KGTP only supports X86_32, X86_64, MIPS and ARM, please check your architecture."
 #endif
-/* ---------------------------------------------------------------- */
+/* check the kernel configs to see whether all the related dependencies are opened. */
 
-/* Following part is to support old Linux kernel ------------------ */
+/* defines to support old Linux kernel */
 #ifndef DEFINE_SEMAPHORE
-#define DEFINE_SEMAPHORE(name)	DECLARE_MUTEX(name)
+#define DEFINE_SEMAPHORE(name)	DECLARE_MUTEX(name) // If no SEMAPHORE, use MUTEX instead
 #endif
 
 #ifndef list_first_entry
 #define list_first_entry(ptr, type, member) \
 	list_entry((ptr)->next, type, member)
 #endif
-
-/* ---------------------------------------------------------------- */
+/* defines to support old Linux kernel */
 
 #ifdef GTPDEBUG
-#define GTP_DEBUG		KERN_WARNING
+#define GTP_DEBUG		KERN_WARNING // default debug level is WARNING
 #endif
 
 /* #define GTP_DEBUG_V */
 
-#define GTP_RW_MAX		16384
+#define GTP_RW_MAX		16384 // 16*1024
 #define GTP_RW_BUFP_MAX		(GTP_RW_MAX - 4 - gtp_rw_size)
 
 #define FID_TYPE		unsigned int
@@ -223,7 +236,7 @@ enum {
 #define FRAME_ALIGN_SIZE	sizeof(unsigned int)
 #define FRAME_ALIGN(x)		((x + FRAME_ALIGN_SIZE - 1) \
 				 & (~(FRAME_ALIGN_SIZE - 1)))
-#endif
+#endif // GTP_FRAME_SIMPLE or GTP_RB defined
 #ifdef GTP_FRAME_SIMPLE
 #define GTP_FRAME_HEAD_SIZE	(FID_SIZE + sizeof(char *) + sizeof(ULONGEST))
 #define GTP_FRAME_REG_SIZE	(FID_SIZE + sizeof(char *) \
@@ -232,21 +245,21 @@ enum {
 				 + sizeof(struct gtp_frame_mem))
 #define GTP_FRAME_VAR_SIZE	(FID_SIZE + sizeof(char *) \
 				 + sizeof(struct gtp_frame_var))
-#endif
+#endif // end for ifdef GTP_FRAME_SIMPLE
 #ifdef GTP_RB
 /* The frame head size: FID_HEAD + count id + frame number + pointer to prev frem */
 #define GTP_FRAME_HEAD_SIZE	(FID_SIZE + sizeof(u64) + sizeof(ULONGEST) + sizeof(void *))
 /* The frame head size: FID_PAGE_BEGIN + count id */
 #define GTP_FRAME_PAGE_BEGIN_SIZE	(FID_SIZE + sizeof(u64))
-#endif
+#endif // end for ifdef GTP_RB
 #ifdef GTP_FTRACE_RING_BUFFER
 #define GTP_FRAME_HEAD_SIZE	(FID_SIZE + sizeof(ULONGEST))
-#endif
+#endif // end for ifdef GTP_FTRACE_RING_BUFFER
 #if defined(GTP_FTRACE_RING_BUFFER) || defined(GTP_RB)
 #define GTP_FRAME_REG_SIZE	(FID_SIZE + sizeof(struct pt_regs))
 #define GTP_FRAME_MEM_SIZE	(FID_SIZE + sizeof(struct gtp_frame_mem))
 #define GTP_FRAME_VAR_SIZE	(FID_SIZE + sizeof(struct gtp_frame_var))
-#endif
+#endif // GTP_FTRACE_RING_BUFFER or GTP_RB defined
 
 #define INT2CHAR(h)		((h) > 9 ? (h) + 'a' - 10 : (h) + '0')
 
@@ -305,6 +318,7 @@ struct gtpsrc {
 	char		*src;
 };
 
+// The reason why gtp stops
 enum gtp_stop_type {
 	gtp_stop_normal = 0,
 	gtp_stop_frame_full,
@@ -327,6 +341,7 @@ enum gtp_stop_type {
 /* See $kret.  */
 #define GTP_ENTRY_FLAGS_IS_KRETPROBE	32
 
+// The tracepoint type
 enum gtp_entry_type {
 	/* Kernel tracepoint that use kprobes.
 	   When the gtp_entry is alloced by function gtp_list_add, all
@@ -341,7 +356,7 @@ enum gtp_entry_type {
 
 	/* Watch tracepoint.
 	   When tracepoint action is checked by function gtp_check_setv.
-	   gtp_entry will be set to there types.  */
+	   gtp_entry will be set to these types.  */
 	gtp_entry_watch_static,
 	gtp_entry_watch_dynamic,
 };
@@ -713,7 +728,7 @@ string2hex(char *pkg, char *out)
 	return ret;
 }
 
-/* Strdup begin.  If end is not NULL, it point to the end of this dup.  */
+/* Strdup begin.  If end is not NULL, it points to the end of this dup.  */
 
 static char *
 gtp_strdup(char *begin, char *end)
@@ -751,7 +766,7 @@ gtp_local_clock(void)
 #error "This ARCH cannot get cycle."
 #endif
 }
-#else
+#else // end for ifdef GTP_CLOCK_CYCLE
 static unsigned long long
 gtp_local_clock(void)
 {
@@ -799,7 +814,7 @@ probe_kernel_read(void *dst, void *src, size_t size)
 #endif
 
 #ifdef GTP_RB
-#include "gtp_rb.c"
+#include "gtp_rb.c" // the own implementation of Ring Buffer
 #endif
 
 /* Following part is for TSV.  */
@@ -869,6 +884,7 @@ enum {
 	GTP_VAR_SPECIAL_MAX			= GTP_TASK_PT_REGS_ID,
 };
 
+/* perf event */
 enum pe_tv_id {
 	pe_tv_unknown = 0,
 	pe_tv_cpu,
@@ -920,6 +936,7 @@ struct gtp_var_per_cpu {
 	} u;
 };
 
+/* gtp variable per cpu */
 struct gtp_var_pc {
 	int				cpu;
 	struct gtp_var_per_cpu __percpu	*pc;
@@ -956,6 +973,7 @@ static unsigned int	gtp_var_num;
 static struct gtp_var	*current_gtp_var;
 static struct gtp_var	**gtp_var_array;
 
+/* find var according to num */
 static struct gtp_var *
 gtp_var_find_num(unsigned int num)
 {
@@ -971,6 +989,7 @@ gtp_var_find_num(unsigned int num)
 	return NULL;
 }
 
+/* find var according to src*/
 static struct gtp_var *
 gtp_var_find_src(char *src)
 {
@@ -986,6 +1005,7 @@ gtp_var_find_src(char *src)
 	return NULL;
 }
 
+/* find the var array index */
 static int
 gtp_var_array_find_num(struct gtp_var *var)
 {
@@ -999,6 +1019,7 @@ gtp_var_array_find_num(struct gtp_var *var)
 	return -1;
 }
 
+/* allocate a new variable */
 static struct gtp_var *
 gtp_var_alloc(int cpu_id, unsigned int num, int num_not_set,
 	      int64_t initial_val, char *src)
@@ -1057,6 +1078,7 @@ gtp_var_alloc(int cpu_id, unsigned int num, int num_not_set,
 	return var;
 }
 
+/* add a new special variable */
 static struct gtp_var *
 gtp_var_special_add(unsigned int num, int num_not_set,
 		    int64_t initial_val, char *name,
@@ -1088,6 +1110,7 @@ gtp_var_special_add(unsigned int num, int num_not_set,
 	return var;
 }
 
+/* remove varibles */
 static void
 gtp_var_release(int include_special)
 {
@@ -1162,6 +1185,7 @@ gtp_var_release(int include_special)
 	}
 }
 
+/* get the GTP version */
 static int
 gtp_version_hooks_get_val(struct gtp_trace_s *unused1, struct gtp_var *unused2,
 			  int64_t *val)
@@ -1175,6 +1199,7 @@ static struct gtp_var_hooks	gtp_version_hooks = {
 	.agent_get_val = gtp_version_hooks_get_val,
 };
 
+/* get the cpu ID */
 static int
 gtp_cpu_id_hooks_get_val(struct gtp_trace_s *unused1, struct gtp_var *unused2,
 			  int64_t *val)
@@ -1188,6 +1213,7 @@ static struct gtp_var_hooks	gtp_cpu_id_hooks = {
 	.agent_get_val = gtp_cpu_id_hooks_get_val,
 };
 
+/* get current task */
 static int
 gtp_current_task_hooks_get_val(struct gtp_trace_s *gts,
 			       struct gtp_var *unused, int64_t *val)
@@ -1204,6 +1230,7 @@ static struct gtp_var_hooks	gtp_current_task_hooks = {
 	.agent_get_val = gtp_current_task_hooks_get_val,
 };
 
+/* get current task PID */
 static int
 gtp_current_task_pid_hooks_get_val(struct gtp_trace_s *gts,
 				   struct gtp_var *unused2, int64_t *val)
@@ -1220,6 +1247,7 @@ static struct gtp_var_hooks	gtp_current_task_pid_hooks = {
 	.agent_get_val = gtp_current_task_pid_hooks_get_val,
 };
 
+/* get current thread info */
 static int
 gtp_current_thread_info_hooks_get_val(struct gtp_trace_s *unused1,
 				      struct gtp_var *unused2, int64_t *val)
@@ -1233,6 +1261,7 @@ static struct gtp_var_hooks	gtp_current_thread_info_hooks = {
 	.agent_get_val = gtp_current_thread_info_hooks_get_val,
 };
 
+/* get current task of user mode*/
 static int
 gtp_current_task_user_hooks_get_val(struct gtp_trace_s *unused1,
 				    struct gtp_var *unused2, int64_t *val)
@@ -1246,6 +1275,7 @@ static struct gtp_var_hooks	gtp_current_task_user_hooks = {
 	.agent_get_val = gtp_current_task_user_hooks_get_val,
 };
 
+/* set current value of gtp trace */
 static int
 gtp_current_hooks_set_val(struct gtp_trace_s *gts, struct gtp_var *gtv,
 			  int64_t val)
@@ -1264,6 +1294,7 @@ static struct gtp_var_hooks	gtp_current_hooks = {
 	.agent_set_val = gtp_current_hooks_set_val,
 };
 
+/* get GTP_LOCAL_CLOCK */
 static int
 gtp_clock_hooks_get_val(struct gtp_trace_s *unused1,
 			struct gtp_var *unused2, int64_t *val)
@@ -1278,6 +1309,7 @@ static struct gtp_var_hooks	gtp_clock_hooks = {
 	.agent_get_val = gtp_clock_hooks_get_val,
 };
 
+/* get cooked clock */
 static int
 gtp_cooked_clock_hooks_get_val(struct gtp_trace_s *unused1,
 			       struct gtp_var *unused2, int64_t *val)
@@ -1292,6 +1324,7 @@ static struct gtp_var_hooks	gtp_cooked_clock_hooks = {
 	.agent_get_val = gtp_cooked_clock_hooks_get_val,
 };
 
+/* if we are using X86, we got Read Time Stamp Counter support */
 #ifdef CONFIG_X86
 static int
 gtp_rdtsc_hooks_get_val(struct gtp_trace_s *unused1,
@@ -1325,6 +1358,7 @@ static struct gtp_var_hooks	gtp_cooked_rdtsc_hooks = {
 };
 #endif
 
+/* if we defined GTP_RB, we can get the gtp_rb_discard_page_number */
 #ifdef GTP_RB
 static int
 gtp_rb_discard_page_number_hooks_get_val(struct gtp_trace_s *unused1,
@@ -1340,6 +1374,7 @@ static struct gtp_var_hooks	gtp_rb_discard_page_number_hooks = {
 };
 #endif
 
+/* get tmp printk */
 static int
 gtp_printk_tmp_hooks_get_val(struct gtp_trace_s *gts,
 			     struct gtp_var *unused, int64_t *val)
@@ -1349,6 +1384,7 @@ gtp_printk_tmp_hooks_get_val(struct gtp_trace_s *gts,
 	return 0;
 }
 
+/* set tmp printk */
 static int
 gtp_printk_tmp_hooks_set_val(struct gtp_trace_s *gts,
 			     struct gtp_var *unused, int64_t val)
@@ -1363,6 +1399,7 @@ static struct gtp_var_hooks	gtp_printk_tmp_hooks = {
 	.agent_set_val = gtp_printk_tmp_hooks_set_val,
 };
 
+/* set printk level */
 static int
 gtp_printk_level_hooks_set_val(struct gtp_trace_s *gts,
 			       struct gtp_var *unused, int64_t val)
@@ -1376,6 +1413,7 @@ static struct gtp_var_hooks	gtp_printk_level_hooks = {
 	.agent_set_val = gtp_printk_level_hooks_set_val,
 };
 
+/* set printk format */
 static int
 gtp_printk_format_hooks_set_val(struct gtp_trace_s *gts,
 				struct gtp_var *unused, int64_t val)
@@ -1389,6 +1427,7 @@ static struct gtp_var_hooks	gtp_printk_format_hooks = {
 	.agent_set_val = gtp_printk_format_hooks_set_val,
 };
 
+/* dump the stack */
 static int
 gtp_dump_stack_hooks_get_val(struct gtp_trace_s *gts,
 			     struct gtp_var *unused1, int64_t *val)
@@ -1405,6 +1444,7 @@ static struct gtp_var_hooks	gtp_dump_stack_hooks = {
 	.agent_get_val = gtp_dump_stack_hooks_get_val,
 };
 
+/* Q: what does gtp_pipe_trace mean ? */
 static int
 gtp_pipe_trace_hooks_get_val(struct gtp_trace_s *unused1,
 			     struct gtp_var *unused2, int64_t *val)
@@ -1428,6 +1468,7 @@ static struct gtp_var_hooks	gtp_pipe_trace_hooks = {
 	.gdb_set_val = gtp_pipe_trace_hooks_set_val,
 };
 
+/* get the cpu number */
 static int
 gtp_cpu_number_hooks_get_val(struct gtp_trace_s *unused1,
 			     struct gtp_var *unused2, int64_t *val)
@@ -1442,6 +1483,7 @@ static struct gtp_var_hooks	gtp_cpu_number_hooks = {
 	.agent_get_val = gtp_cpu_number_hooks_get_val,
 };
 
+/* enable per cpu perf event */
 static void	gtp_pc_pe_en(int enable);
 
 static int
@@ -1457,6 +1499,7 @@ static struct gtp_var_hooks	gtp_pc_pe_en_hooks = {
 	.agent_set_val = gtp_pc_pe_en_hooks_set_val,
 };
 
+/* get xtime */
 static int
 gtp_xtime_hooks_agent_get_val(struct gtp_trace_s *gts,
 			      struct gtp_var *gtv, int64_t *val)
@@ -1492,6 +1535,7 @@ static struct gtp_var_hooks	gtp_xtime_hooks = {
 	.gdb_get_val = gtp_xtime_hooks_gdb_get_val,
 };
 
+/* Q: whether ignore error when KGTP starts ? */
 static int
 gtp_ignore_error_hooks_get_val(struct gtp_trace_s *unused1,
 			       struct gtp_var *unused2, int64_t *val)
@@ -1515,6 +1559,7 @@ static struct gtp_var_hooks	gtp_ignore_error_hooks = {
 	.gdb_set_val = gtp_ignore_error_hooks_set_val,
 };
 
+/* get last error number */
 static int
 gtp_last_errno_hooks_get_val(struct gtp_trace_s *unused1,
 			     struct gtp_var *unused2, int64_t *val)
@@ -1528,6 +1573,7 @@ static struct gtp_var_hooks	gtp_last_errno_hooks = {
 	.gdb_get_val = gtp_last_errno_hooks_get_val,
 };
 
+/* get hardirq count */
 static int
 gtp_hardirq_count_hooks_get_val(struct gtp_trace_s *unused1,
 				struct gtp_var *unused2, int64_t *val)
@@ -1541,6 +1587,7 @@ static struct gtp_var_hooks	gtp_hardirq_count_hooks = {
 	.agent_get_val = gtp_hardirq_count_hooks_get_val,
 };
 
+/* get softirq count */
 static int
 gtp_softirq_count_hooks_get_val(struct gtp_trace_s *unused1,
 				struct gtp_var *unused2, int64_t *val)
@@ -1554,6 +1601,7 @@ static struct gtp_var_hooks	gtp_softirq_count_hooks = {
 	.agent_get_val = gtp_softirq_count_hooks_get_val,
 };
 
+/* get irq count */
 static int
 gtp_irq_count_hooks_get_val(struct gtp_trace_s *unused1,
 			    struct gtp_var *unused2, int64_t *val)
@@ -1567,6 +1615,7 @@ static struct gtp_var_hooks	gtp_irq_count_hooks = {
 	.agent_get_val = gtp_irq_count_hooks_get_val,
 };
 
+/* Q: get back-trace size ? */
 static int
 gtp_bt_hooks_get_val(struct gtp_trace_s *unused1,
 		     struct gtp_var *unused2, int64_t *val)
@@ -1576,6 +1625,7 @@ gtp_bt_hooks_get_val(struct gtp_trace_s *unused1,
 	return 0;
 }
 
+/* Q: set back-trace size ? */
 static int
 gtp_bt_hooks_set_val(struct gtp_trace_s *unused1,
 		     struct gtp_var *unused2, int64_t val)
@@ -1608,7 +1658,7 @@ gtp_enable_disable_hooks_set_val(struct gtp_trace_s *gts,
 static struct gtp_var_hooks	gtp_enable_disable_hooks = {
 	.agent_set_val = gtp_enable_disable_hooks_set_val,
 };
-#endif
+#endif // end for #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,30))
 
 #ifdef CONFIG_X86
 static int
@@ -1879,7 +1929,7 @@ gtp_watch_prev_val_get_val(struct gtp_trace_s *gts, struct gtp_var *gtv,
 static struct gtp_var_hooks	gtp_watch_prev_val_hooks = {
 	.agent_get_val = gtp_watch_prev_val_get_val,
 };
-#endif
+#endif // end for #ifdef CONFIG_X86
 
 #ifdef CONFIG_X86
 static int
@@ -1943,7 +1993,7 @@ error:
 	       (void *)addr, size);
 	return ret;
 }
-#endif
+#endif // end for #ifdef CONFIG_X86
 
 #ifdef GTP_RB
 static int
@@ -1981,7 +2031,7 @@ gtp_step_id_hooks_get_val(struct gtp_trace_s *gts, struct gtp_var *gtv,
 static struct gtp_var_hooks	gtp_step_id_hooks = {
 	.agent_get_val = gtp_step_id_hooks_get_val,
 };
-#endif
+#endif // end for #ifdef GTP_RB
 
 static int
 gtp_inferior_pid_get_val(struct gtp_trace_s *gts, struct gtp_var *gtv,
@@ -2008,6 +2058,7 @@ static struct gtp_var_hooks	gtp_task_pt_regs_hooks = {
 	.agent_get_val = gtp_task_pt_regs_get_val,
 };
 
+/* add special vars to gtp */
 static int
 gtp_var_special_add_all(void)
 {
@@ -2071,7 +2122,7 @@ gtp_var_special_add_all(void)
 				  "cooked_rdtsc", &gtp_cooked_rdtsc_hooks);
 	if (IS_ERR(var))
 		return PTR_ERR(var);
-#endif
+#endif // end for #ifdef CONFIG_X86
 
 #ifdef GTP_RB
 	var = gtp_var_special_add(GTP_VAR_GTP_RB_DISCARD_PAGE_NUMBER, 0, 0,
@@ -2079,7 +2130,7 @@ gtp_var_special_add_all(void)
 				  &gtp_rb_discard_page_number_hooks);
 	if (IS_ERR(var))
 		return PTR_ERR(var);
-#endif
+#endif // end for #ifdef GTP_RB
 
 	var = gtp_var_special_add(GTP_VAR_PRINTK_TMP_ID, 0, 0,
 				  "printk_tmp", &gtp_printk_tmp_hooks);
@@ -2176,7 +2227,7 @@ gtp_var_special_add_all(void)
 				  "disable", &gtp_enable_disable_hooks);
 	if (IS_ERR(var))
 		return PTR_ERR(var);
-#endif
+#endif // end for #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,30))
 
 #ifdef CONFIG_X86
 	var = gtp_var_special_add(GTP_WATCH_STATIC_ID, 0, 0,
@@ -2231,7 +2282,7 @@ gtp_var_special_add_all(void)
 				  "watch_count", &gtp_watch_get_hooks);
 	if (IS_ERR(var))
 		return PTR_ERR(var);
-#endif
+#endif // end for #ifdef CONFIG_X86
 	var = gtp_var_special_add(GTP_STEP_COUNT_ID, 0, 0,
 				  "step_count", &gtp_step_count_hooks);
 	if (IS_ERR(var))
@@ -2241,7 +2292,7 @@ gtp_var_special_add_all(void)
 				  "step_id", &gtp_step_id_hooks);
 	if (IS_ERR(var))
 		return PTR_ERR(var);
-#endif
+#endif // end for #ifdef GTP_RB
 
 	var = gtp_var_special_add(GTP_INFERIOR_PID_ID, 0, 0,
 				  "inferior_pid", &gtp_inferior_pid_hooks);
@@ -2256,6 +2307,7 @@ gtp_var_special_add_all(void)
 	return 0;
 }
 
+/* implementations of strcasecmp and strncasecmp are not supported in old kernel */
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,22)) \
     || (RHEL_RELEASE_CODE != 0 && RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(5,6))
 #ifndef __HAVE_ARCH_STRCASECMP
@@ -2285,6 +2337,7 @@ int strncasecmp(const char *s1, const char *s2, size_t n)
 #endif
 #endif
 
+/* buffer management */
 struct gtp_realloc_s {
 	char	*buf;
 	size_t	size;
@@ -2313,7 +2366,7 @@ gtp_realloc(struct gtp_realloc_s *grs, size_t size, int is_end)
 	char	*tmp;
 
 	if (unlikely((grs->real_size < grs->size + size)
-		     || (is_end && grs->real_size != grs->size + size))) {
+		     || (is_end && grs->real_size != grs->size + size))) { // size is not large enough, need more space
 		grs->real_size = grs->size + size;
 		if (!is_end)
 			grs->real_size += 100;
@@ -2325,13 +2378,13 @@ gtp_realloc(struct gtp_realloc_s *grs, size_t size, int is_end)
 			return NULL;
 		}
 
-		memcpy(tmp, grs->buf, grs->size);
+		memcpy(tmp, grs->buf, grs->size); // copy data from old place to new one
 		if (grs->buf)
 			vfree(grs->buf);
 		grs->buf = tmp;
 	}
 
-	grs->size += size;
+	grs->size += size; // size is large enough
 	return grs->buf + grs->size - size;
 }
 
@@ -2375,6 +2428,7 @@ gtp_realloc_sub_size(struct gtp_realloc_s *grs, size_t size)
 }
 
 #ifdef CONFIG_X86
+/* action: read registers */
 ULONGEST
 gtp_action_reg_read(struct gtp_trace_s *gts, int num)
 {
@@ -2434,7 +2488,7 @@ gtp_action_reg_read(struct gtp_trace_s *gts, int num)
 	case 15:
 		ret = gts->regs->gs;
 		break;
-#else
+#else // #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,25))
 	case 0:
 		ret = gts->regs->eax;
 		break;
@@ -2489,7 +2543,7 @@ gtp_action_reg_read(struct gtp_trace_s *gts, int num)
 		ret = 0;
 		break;
 #endif
-#else
+#else // #ifdef CONFIG_X86_64
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,25))
 	case 0:
 		ret = gts->regs->ax;
@@ -2558,7 +2612,7 @@ gtp_action_reg_read(struct gtp_trace_s *gts, int num)
 	case 17:
 		ret = gts->regs->eflags;
 		break;
-#endif
+#endif // #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,25))
 	case 8:
 		ret = gts->regs->r8;
 		break;
@@ -2592,7 +2646,7 @@ gtp_action_reg_read(struct gtp_trace_s *gts, int num)
 #endif
 	default:
 		ret = 0;
-		gts->tpe->reason = gtp_stop_access_wrong_reg;
+		gts->tpe->reason = gtp_stop_access_wrong_reg; // access the wrong register
 		break;
 	}
 
@@ -2600,6 +2654,7 @@ gtp_action_reg_read(struct gtp_trace_s *gts, int num)
 }
 EXPORT_SYMBOL(gtp_action_reg_read);
 
+/* print registers in ascii */
 static void
 gtp_regs2ascii(struct pt_regs *regs, char *buf)
 {
@@ -2637,7 +2692,7 @@ gtp_regs2ascii(struct pt_regs *regs, char *buf)
 		(unsigned int) regs->fs);
 	printk(GTP_DEBUG_V "gtp_regs2ascii: gs = 0x%x\n",
 		(unsigned int) regs->gs);
-#endif
+#endif // end for #ifdef GTP_DEBUG_V
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,25))
 	sprintf(buf, "%08x", (unsigned int) swab32(regs->ax));
 	buf += 8;
@@ -2706,7 +2761,7 @@ gtp_regs2ascii(struct pt_regs *regs, char *buf)
 	/* sprintf(buf, "%08x", (unsigned int) swab32(regs->xgs)); */
 	sprintf(buf, "00000000");
 	buf += 8;
-#endif
+#endif // end for #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,25))
 #else
 #ifdef GTP_DEBUG_V
 	printk(GTP_DEBUG_V "gtp_regs2ascii: ax = 0x%lx\n", regs->ax);
@@ -2800,9 +2855,10 @@ gtp_regs2ascii(struct pt_regs *regs, char *buf)
 	sprintf(buf, "%08x",
 		(unsigned int) swab32((unsigned int)regs->ss));
 	buf += 8;
-#endif
+#endif // end for #ifdef CONFIG_X86_32
 }
 
+/* print regs in binary */
 static void
 gtp_regs2bin(struct pt_regs *regs, char *buf)
 {
@@ -3001,7 +3057,7 @@ gtp_regs2bin(struct pt_regs *regs, char *buf)
 	buf += 4;
 #endif
 }
-#endif
+#endif // end for #ifdef CONFIG_X86
 
 #ifdef CONFIG_MIPS
 static ULONGEST
@@ -3168,7 +3224,7 @@ gtp_regs2bin(struct pt_regs *regs, char *buf)
 	buf += REGSIZE;
 #undef REGSIZE
 }
-#endif
+#endif // end for #ifdef CONFIG_MIPS
 
 #ifdef CONFIG_ARM
 ULONGEST
@@ -3240,7 +3296,7 @@ gtp_regs2bin(struct pt_regs *regs, char *buf)
 	memcpy(buf, &regs->uregs[16], 4);
 	buf += 4;
 }
-#endif
+#endif // end for #ifdef CONFIG_ARM
 
 #ifdef GTP_PERF_EVENTS
 #if KGTP_API_VERSION_LOCAL < 20120808
@@ -3250,6 +3306,7 @@ gtp_regs2bin(struct pt_regs *regs, char *buf)
 static DEFINE_PER_CPU(int, pc_pe_list_all_disabled);
 static DEFINE_PER_CPU(struct gtp_var_perf_event *, pc_pe_list);
 
+/* disable perf event */
 static void
 pc_pe_list_disable(void)
 {
@@ -3272,6 +3329,7 @@ pc_pe_list_disable(void)
 	}
 }
 
+/* enable perf event */
 static void
 pc_pe_list_enable(void)
 {
@@ -3324,7 +3382,7 @@ gtp_pe_set_en(struct gtp_var_perf_event *pts, int enable)
 	}
 	pts->en = enable;
 }
-#else
+#else // #ifndef GTP_PERF_EVENTS
 static void
 gtp_pc_pe_en(int enable)
 {
@@ -3343,9 +3401,9 @@ static inline int is_cow_mapping(vm_flags_t flags)
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26))
 #ifdef __HAVE_ARCH_PTE_SPECIAL
-# define HAVE_PTE_SPECIAL 1
+#define HAVE_PTE_SPECIAL 1
 #else
-# define HAVE_PTE_SPECIAL 0
+#define HAVE_PTE_SPECIAL 0
 #endif
 #endif
 struct page *
@@ -3708,6 +3766,7 @@ gtp_task_handler_read(void *dst, void *src, size_t size)
 	return 0;
 }
 
+/* use simple frame */
 #ifdef GTP_FRAME_SIMPLE
 static char *
 gtp_frame_next(char *frame)
@@ -3831,6 +3890,7 @@ static int	gtp_collect_var(struct gtp_trace_s *gts, int num);
 static int	gtp_var_array_step_id_id = 0;
 #endif
 
+/* Q: what is action head ? */
 static int
 gtp_action_head(struct gtp_trace_s *gts)
 {
@@ -3905,6 +3965,7 @@ gtp_action_head(struct gtp_trace_s *gts)
 	return 0;
 }
 
+/* action: printk */
 static int
 gtp_action_printk(struct gtp_trace_s *gts, ULONGEST addr, size_t size)
 {
@@ -4080,6 +4141,7 @@ gtp_action_printk(struct gtp_trace_s *gts, ULONGEST addr, size_t size)
 	return 0;
 }
 
+/* action: read memeory */
 static int
 gtp_action_memory_read(struct gtp_trace_s *gts, int reg, CORE_ADDR addr,
 		       size_t size)
@@ -4164,6 +4226,7 @@ gtp_action_memory_read(struct gtp_trace_s *gts, int reg, CORE_ADDR addr,
 	return 0;
 }
 
+/* action: registers */
 static int
 gtp_action_r(struct gtp_trace_s *gts, struct action *ae)
 {
@@ -4234,6 +4297,7 @@ gtp_action_r(struct gtp_trace_s *gts, struct action *ae)
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,30))
 static DEFINE_SPINLOCK(gtp_handler_enable_disable_loc);
 
+/* enable or disable the handler */
 static void
 gtp_handler_enable_disable(struct gtp_trace_s *gts, ULONGEST val, int enable)
 {
@@ -4265,6 +4329,7 @@ gtp_handler_enable_disable(struct gtp_trace_s *gts, ULONGEST val, int enable)
 }
 #endif
 
+/* get variable values */
 static int
 gtp_var_agent_get_val(struct gtp_trace_s *gts, int num, int64_t *val)
 {
@@ -4305,12 +4370,13 @@ gtp_var_agent_get_val(struct gtp_trace_s *gts, int num, int64_t *val)
 			}
 		}
 		break;
-#endif
+#endif // end for PERF_EVENTS
 	}
 
 	return ret;
 }
 
+/* set variable values */
 static int
 gtp_var_agent_set_val(struct gtp_trace_s *gts, int num, int64_t val)
 {
@@ -4355,6 +4421,7 @@ gtp_var_agent_set_val(struct gtp_trace_s *gts, int num, int64_t val)
 
 /* The number is not the ID of tvar, it is the ID of gtp_var_array. */
 
+/* collect variables */
 static int
 gtp_collect_var(struct gtp_trace_s *gts, int num)
 {
@@ -4415,6 +4482,7 @@ gtp_collect_var(struct gtp_trace_s *gts, int num)
 #define STACK_MAX	32
 static DEFINE_PER_CPU(ULONGEST[STACK_MAX], action_x_stack);
 
+/* Q: what is action x ? */
 static int
 gtp_action_x(struct gtp_trace_s *gts, struct action *ae)
 {
@@ -4566,7 +4634,7 @@ gtp_action_x(struct gtp_trace_s *gts, struct action *ae)
 			} else
 				goto code_error_out;
 			break;
-#endif
+#endif // end for #ifndef CONFIG_MIPS
 
 		/* lsh */
 		case 0x09:
@@ -5015,7 +5083,7 @@ gtp_handler_wakeup(void)
 #endif
 	}
 }
-#endif
+#endif // end for #if defined(GTP_FTRACE_RING_BUFFER) || defined(GTP_RB)
 
 #ifdef CONFIG_X86
 /* while-stepping stop.  */
@@ -5039,8 +5107,9 @@ gtp_step_stop(struct pt_regs *regs)
 	__get_cpu_var(gtp_step).tpe = NULL;
 	__get_cpu_var(gtp_step).irq_need_open = 0;
 }
-#endif
+#endif // end for #ifdef CONFIG_X86
 
+/* this is the driver for all the requests of trace points */
 static void
 gtp_handler(struct gtp_trace_s *gts)
 {
@@ -5223,10 +5292,11 @@ static int	gtp_access_cooked_clock;
 static int	gtp_have_pc_pe;
 #endif
 
+/* handler begin event */
 static void
 gtp_handler_begin(void)
 {
-	if (!__get_cpu_var(gtp_handler_began)) {
+	if (!__get_cpu_var(gtp_handler_began)) { // if handler has not began
 #ifdef CONFIG_X86
 		if (gtp_access_cooked_rdtsc) {
 			u64	a;
@@ -5248,6 +5318,7 @@ gtp_handler_begin(void)
 	}
 }
 
+/* handler end event */
 static void
 gtp_handler_end(void)
 {
@@ -5278,6 +5349,7 @@ gtp_handler_end(void)
 	}
 }
 
+/* kprobe pre handler */
 static inline void
 gtp_kp_pre_handler_1(struct kprobe *p, struct pt_regs *regs)
 {
@@ -5297,6 +5369,7 @@ gtp_kp_pre_handler_1(struct kprobe *p, struct pt_regs *regs)
 	gtp_handler(&gts);
 }
 
+/* kprobe post handler */
 static inline void
 gtp_kp_post_handler_1(struct kprobe *p, struct pt_regs *regs,
 		      unsigned long flags)
@@ -5347,6 +5420,7 @@ gtp_kp_post_handler_1(struct kprobe *p, struct pt_regs *regs,
 #endif
 }
 
+/* kprobe ret handler */
 static inline void
 gtp_kp_ret_handler_1(struct kretprobe_instance *ri, struct pt_regs *regs)
 {
@@ -5435,6 +5509,7 @@ gtp_kp_ret_handler(struct kretprobe_instance *ri, struct pt_regs *regs)
 	return 0;
 }
 
+/* uprobe handler */
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,9,0)) && defined CONFIG_UPROBES
 static int
 gtp_up_handler(struct uprobe_consumer *self, struct pt_regs *regs)
@@ -5464,6 +5539,7 @@ gtp_up_handler(struct uprobe_consumer *self, struct pt_regs *regs)
 }
 #endif
 
+/* allocate memory for action */
 static struct action *
 gtp_action_alloc(char type)
 {
@@ -5486,6 +5562,7 @@ gtp_action_release(struct action *ae)
 	kfree(ae);
 }
 
+/* release actions in a list */
 static void
 gtp_action_list_release(struct list_head *list)
 {
@@ -5499,6 +5576,7 @@ gtp_action_list_release(struct list_head *list)
 	}
 }
 
+/* release all the src */
 static void
 gtp_src_release(struct gtpsrc *src)
 {
@@ -5512,6 +5590,7 @@ gtp_src_release(struct gtpsrc *src)
 	}
 }
 
+/* stop tracepoint by unregistering related kprobe*/
 static void
 #if (LINUX_VERSION_CODE > KERNEL_VERSION(2,6,19))
 gtp_tracepoint_stop(struct work_struct *work)
@@ -5529,7 +5608,7 @@ gtp_tracepoint_stop(struct work_struct *work)
 gtp_tracepoint_stop(void *p)
 {
 	struct gtp_entry	*tpe = p;
-#endif
+#endif // end for #if (LINUX_VERSION_CODE > KERNEL_VERSION(2,6,19))
 
 #ifdef GTP_DEBUG
 	printk(GTP_DEBUG "gtp_tracepoint_stop: tracepoint %d %p\n",
@@ -5545,6 +5624,7 @@ gtp_tracepoint_stop(void *p)
 	}
 }
 
+/* enable and disable tracepoint */
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,30))
 static void
 gtp_tracepoint_enable(struct work_struct *work)
@@ -5585,7 +5665,7 @@ gtp_tracepoint_disable(struct work_struct *work)
 			disable_kprobe(&tpe->u.kp.kpret.kp);
 	}
 }
-#endif
+#endif // end for #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,30))
 
 /* Alloc a gtp_entry and add it to gtp_list.  */
 
@@ -5623,6 +5703,7 @@ out:
 	return ret;
 }
 
+/* find related tracepoint entry */
 static struct gtp_entry *
 gtp_list_find(ULONGEST num, ULONGEST addr)
 {
@@ -5655,6 +5736,7 @@ gtp_list_find_without_addr_do_check(ULONGEST num)
 	return ret;
 }
 
+/* release all the lists */
 static void
 gtp_list_release(void)
 {
@@ -5662,7 +5744,6 @@ gtp_list_release(void)
 
 	while (gtp_list) {
 		tpe = gtp_list;
-		gtp_list = gtp_list->next;
 		gtp_action_release(tpe->cond);
 		gtp_action_list_release(&tpe->action_list);
 		gtp_action_list_release(&tpe->step_action_list);
@@ -5670,6 +5751,7 @@ gtp_list_release(void)
 		gtp_src_release(tpe->action_cmd);
 		gtp_src_release(tpe->printk_str);
 		kfree(tpe);
+		gtp_list = gtp_list->next; // move to the next entry
 	}
 
 	current_gtp = NULL;
@@ -5764,8 +5846,9 @@ gtp_frame_iter_close(void)
 		}
 	}
 }
-#endif
+#endif // end for #ifdef GTP_FTRACE_RING_BUFFER
 
+/* reset the frame */
 static void
 gtp_frame_reset(void)
 {
@@ -5846,6 +5929,8 @@ hex2string(char *pkg, char *out)
 	return ret;
 }
 
+/* Q: what is ro_list ? */
+/* A: list of read-only regions of memory */
 static void
 gtpro_list_clear(void)
 {
@@ -5881,6 +5966,7 @@ out:
 	return e;
 }
 
+/* add src to the tail of src_list */
 static int
 gtp_src_add(char *begin, char *end, struct gtpsrc **src_list)
 {
@@ -5907,6 +5993,7 @@ gtp_src_add(char *begin, char *end, struct gtpsrc **src_list)
 	return 0;
 }
 
+/* hardware breakpoint handler */
 #ifdef CONFIG_X86
 static void
 gtp_hw_breakpoint_handler_1 (struct gtp_hwb_s *hwb, struct pt_regs *regs)
@@ -6149,7 +6236,7 @@ static struct notifier_block gtp_notifier = {
 	.notifier_call = gtp_notifier_call,
 	.priority = 0x7ffffffe /* we need to be notified after kprobe.  */
 };
-#endif
+#endif // end for #ifdef CONFIG_X86
 
 #ifdef CONFIG_X86
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,0,0))
@@ -6403,8 +6490,9 @@ gtp_unregister_hwb(CORE_ADDR addr, int sync)
 
 	return ret;
 }
-#endif
+#endif // end for #ifdef CONFIG_X86
 
+/* handler of QTStop. End the tracepoint experiment. Stop collecting trace frames. */
 static int
 gtp_gdbrsp_qtstop(void)
 {
@@ -6522,7 +6610,7 @@ gtp_gdbrsp_qtstop(void)
 		unregister_kprobe(&gtp_ipi_kp);
 #endif
 	}
-#endif
+#endif // end for #ifdef CONFIG_X86
 
 #ifdef GTP_PERF_EVENTS
 	list_for_each(cur, &gtp_var_list) {
@@ -6574,6 +6662,7 @@ gtp_gdbrsp_qtstop(void)
 	return 0;
 }
 
+/* handler of QTinit. Clear the table of tracepoints, and empty the trace frame buffer. */
 static int
 gtp_gdbrsp_qtinit(void)
 {
@@ -6797,6 +6886,7 @@ gtp_var_pc_checked_find(struct gtp_check_s *check, unsigned int pc)
 	return 0;
 }
 
+/* add backtrace actions to action list */
 static int
 gtp_add_backtrace_actions(struct gtp_entry *tpe, int step)
 {
@@ -8004,6 +8094,7 @@ release_out:
 	return ret;
 }
 
+/* Q: what is gtp_check for ? */
 static int
 gtp_check_x(struct gtp_entry *tpe, struct action *ae, int step)
 {
@@ -8030,6 +8121,7 @@ gtpframe_pipe_wq_wake_up(unsigned long data)
 }
 #endif
 
+/* add work to work_queue */
 static void
 gtp_wq_add_work(unsigned long data)
 {
@@ -8037,6 +8129,7 @@ gtp_wq_add_work(unsigned long data)
 	queue_work(gtp_wq, (struct work_struct *)data);
 }
 
+/* register uprobe tracepoints */
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,9,0)) && defined CONFIG_UPROBES
 int
 gtp_uprobe_register(struct gtp_entry *tpe)
@@ -8100,6 +8193,7 @@ out:
 }
 #endif
 
+/* handler of QTStart. Begin the tracepoint experiment. Begin collecting data from tracepoint hits in the trace frame buffer. */
 static int
 gtp_gdbrsp_qtstart(void)
 {
@@ -8121,7 +8215,7 @@ gtp_gdbrsp_qtstart(void)
 		return -EBUSY;
 
 #ifdef GTP_FTRACE_RING_BUFFER
-	if (!tracing_is_on()) {
+	if (!tracing_is_on()) { // use the infrastructure of Ftrace
 		printk(KERN_WARNING "qtstart: Ring buffer is off.  Please use "
 		       "command "
 		       "\"echo 1 > /sys/kernel/debug/tracing/tracing_on\" "
@@ -8142,6 +8236,7 @@ gtp_gdbrsp_qtstart(void)
 		gtp_var_array[i] = var;
 		i++;
 	}
+
 #ifdef GTP_RB
 	var = gtp_var_find_num(GTP_STEP_ID_ID);
 	if (var == NULL) {
@@ -8638,7 +8733,7 @@ next_list:
 			tpe->flags |= GTP_ENTRY_FLAGS_REG;
 		}
 	}
-#endif
+#endif // end for #ifdef CONFIG_X86
 
 #ifdef CONFIG_X86
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(3,0,0))
@@ -8653,7 +8748,7 @@ next_list:
 			return ret;
 		}
 	}
-#endif
+#endif // end for #ifdef CONFIG_X86
 
 	/* Register kprobe.  */
 	for (tpe = gtp_list; tpe; tpe = tpe->next) {
@@ -8847,6 +8942,7 @@ out:
 	return ret;
 }
 
+/* see QTDP: https://sourceware.org/gdb/current/onlinedocs/gdb/Tracepoint-Packets.html */
 static int
 gtp_gdbrsp_qtdp(char *pkg)
 {
@@ -9039,6 +9135,7 @@ gtp_gdbrsp_qtdp(char *pkg)
 	return 0;
 }
 
+/* see QTDPsrc: https://sourceware.org/gdb/current/onlinedocs/gdb/Tracepoint-Packets.html */
 static int
 gtp_gdbrsp_qtdpsrc(char *pkg)
 {
@@ -9073,6 +9170,7 @@ gtp_gdbrsp_qtdpsrc(char *pkg)
 static void gtp_plugin_mod_get(void);
 static void gtp_plugin_mod_put(void);
 
+/* see QTDisconnected:value : https://sourceware.org/gdb/current/onlinedocs/gdb/Tracepoint-Packets.html */
 static int
 gtp_gdbrsp_qtdisconnected(char *pkg)
 {
@@ -9095,6 +9193,7 @@ gtp_gdbrsp_qtdisconnected(char *pkg)
 	return 0;
 }
 
+/* see QTBuffer: https://sourceware.org/gdb/current/onlinedocs/gdb/Tracepoint-Packets.html */
 static int
 gtp_gdbrsp_qtbuffer(char *pkg)
 {
@@ -9149,7 +9248,8 @@ gtp_frame_head_find_num(int num)
 		if (!tmp)
 			break;
 	} while (tmp != gtp_frame_w_start);
-#endif
+#endif // end for #ifdef GTP_FRAME_SIMPLE
+
 #ifdef GTP_FTRACE_RING_BUFFER
 	if (gtp_frame_current_num >= num)
 		gtp_frame_iter_reset();
@@ -9166,7 +9266,8 @@ gtp_frame_head_find_num(int num)
 
 		ring_buffer_read(gtp_frame_iter[cpu], NULL);
 	}
-#endif
+#endif // end for #ifdef GTP_FTRACE_RING_BUFFER
+
 #ifdef GTP_RB
 	if (num < gtp_frame_current_num)
 		gtp_rb_read_reset();
@@ -9178,7 +9279,7 @@ gtp_frame_head_find_num(int num)
 		if (gtp_rb_read() != 0)
 			break;
 	}
-#endif
+#endif // end for #ifdef GTP_RB
 
 	return -1;
 }
@@ -9381,6 +9482,7 @@ gtp_frame_head_find_trace(ULONGEST trace)
 	return -1;
 }
 
+/* see QTFrame: https://sourceware.org/gdb/current/onlinedocs/gdb/Tracepoint-Packets.html */
 static int
 gtp_gdbrsp_qtframe(char *pkg)
 {
@@ -9390,7 +9492,7 @@ gtp_gdbrsp_qtframe(char *pkg)
 #endif
 
 	if (gtp_start)
-		return -EBUSY;
+		return -EBUSY; // Device or resource busy
 
 	if (gtp_gtpframe_pipe_pid >= 0)
 		return -EBUSY;
@@ -9525,6 +9627,7 @@ out:
 	return 1;
 }
 
+/* see QTro: https://sourceware.org/gdb/current/onlinedocs/gdb/Tracepoint-Packets.html */
 static int
 gtp_gdbrsp_qtro(char *pkg)
 {
@@ -9548,6 +9651,7 @@ gtp_gdbrsp_qtro(char *pkg)
 	return 0;
 }
 
+/* see QTDV: https://sourceware.org/gdb/current/onlinedocs/gdb/Tracepoint-Packets.html */
 static int
 gtp_gdbrsp_qtdv(char *pkg)
 {
@@ -9863,7 +9967,7 @@ gtp_gdbrsp_qtdv(char *pkg)
 		}
 
 		gtp_have_pc_pe = 1;
-#else
+#else // #ifndef GTP_PERF_EVENTS
 		printk(KERN_WARNING "Current Kernel doesn't open "
 				    "GTP_PERF_EVENTS\n");
 		ret = -ENXIO;
@@ -9873,7 +9977,7 @@ gtp_gdbrsp_qtdv(char *pkg)
 #ifdef GTP_PERF_EVENTS
 out:
 #endif
-	list_add(&var->node, &gtp_var_list);
+	list_add(&var->node, &gtp_var_list); // add new TSV to gtp_var_list
 	gtp_var_num++;
 
 	return 0;
@@ -9894,6 +9998,7 @@ error_out:
 	return ret;
 }
 
+/* see QTEnable and QTDisable: https://sourceware.org/gdb/current/onlinedocs/gdb/Tracepoint-Packets.html */
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,30))
 static int
 gtp_gdbrsp_qtenable_qtdisable(char *pkg, int enable)
@@ -9938,6 +10043,7 @@ gtp_gdbrsp_qtenable_qtdisable(char *pkg, int enable)
 }
 #endif
 
+/* the driver of the GDB Tracepoint-Packets: https://sourceware.org/gdb/current/onlinedocs/gdb/Tracepoint-Packets.html */
 static int
 gtp_gdbrsp_QT(char *pkg)
 {
@@ -9981,6 +10087,7 @@ gtp_gdbrsp_QT(char *pkg)
 	return ret;
 }
 
+/* check KGTP status */
 static int
 gtp_get_status(struct gtp_entry *tpe, char *buf, int bufmax)
 {
@@ -10058,7 +10165,8 @@ gtp_get_status(struct gtp_entry *tpe, char *buf, int bufmax)
 			if (!tmp)
 				break;
 		} while (tmp != gtp_frame_w_start);
-#endif
+#endif // end for #ifdef GTP_FRAME_SIMPLE
+
 #ifdef GTP_FTRACE_RING_BUFFER
 		if (gtp_start) {
 			/* XXX: It is just the number of entries.  */
@@ -10093,7 +10201,8 @@ gtp_get_status(struct gtp_entry *tpe, char *buf, int bufmax)
 					 NULL);
 			}
 		}
-#endif
+#endif // end for #ifdef GTP_FTRACE_RING_BUFFER
+
 #ifdef GTP_RB
 		int			cpu;
 		struct gtp_rb_walk_s	rbws;
@@ -10118,7 +10227,7 @@ gtp_get_status(struct gtp_entry *tpe, char *buf, int bufmax)
 			}
 			GTP_RB_UNLOCK_IRQ(rb, flags);
 		}
-#endif
+#endif // end for #ifdef GTP_RB
 	}
 
 	snprintf(buf, bufmax, "tframes:%x;", tfnum);
@@ -10206,6 +10315,7 @@ gtp_get_status(struct gtp_entry *tpe, char *buf, int bufmax)
 	return size;
 }
 
+/* see qTStatus: https://sourceware.org/gdb/current/onlinedocs/gdb/Tracepoint-Packets.html */
 static int
 gtp_gdbrsp_qtstatus(void)
 {
@@ -10224,7 +10334,7 @@ gtp_gdbrsp_qtstatus(void)
 	gtp_rw_bufp += 3;
 	gtp_rw_size += 3;
 
-	tmp = gtp_get_status(tpe, gtp_rw_bufp, GTP_RW_BUFP_MAX);
+	tmp = gtp_get_status(tpe, gtp_rw_bufp, GTP_RW_BUFP_MAX); // the real worker
 	gtp_rw_bufp += tmp;
 	gtp_rw_size += tmp;
 
@@ -10234,6 +10344,7 @@ gtp_gdbrsp_qtstatus(void)
 #define GTP_REPORT_TRACEPOINT_MAX	(1 + 16 + 1 + 16 + 1 + 1 + 1 + \
 					 20 + 1 + 16 + 1)
 
+/* report the status of tracepoint */
 static void
 gtp_report_tracepoint(struct gtp_entry *gtp, char *buf, int bufmax)
 {
@@ -10242,12 +10353,14 @@ gtp_report_tracepoint(struct gtp_entry *gtp, char *buf, int bufmax)
 		 gtp->step, (unsigned long)gtp->pass);
 }
 
+/* the maximum length of action */
 static int
 gtp_report_action_max(struct gtp_entry *gtp, struct gtpsrc *action)
 {
 	return 1 + 16 + 1 + 16 + 1 + strlen(action->src) + 1;
 }
 
+/* report the action related with a specified tracepoint entry */
 static void
 gtp_report_action(struct gtp_entry *gtp, struct gtpsrc *action, char *buf,
 		  int bufmax)
@@ -10256,12 +10369,14 @@ gtp_report_action(struct gtp_entry *gtp, struct gtpsrc *action, char *buf,
 		 (unsigned long)gtp->addr, action->src);
 }
 
+/* the maximum length of src */
 static int
 gtp_report_src_max(struct gtp_entry *gtp, struct gtpsrc *src)
 {
 	return 1 + 16 + 1 + 16 + 1 + strlen(src->src) + 1;
 }
 
+/* report the src related with a specified tracepoint entry */
 static void
 gtp_report_src(struct gtp_entry *gtp, struct gtpsrc *src, char *buf, int bufmax)
 {
@@ -10285,6 +10400,7 @@ gtp_current_action_check(void)
 	}
 }
 
+/* see qTfP: https://sourceware.org/gdb/current/onlinedocs/gdb/Tracepoint-Packets.html */
 static int
 gtp_gdbrsp_qtfp(void)
 {
@@ -10307,6 +10423,7 @@ gtp_gdbrsp_qtfp(void)
 	return 1;
 }
 
+/* ee qTsP: https://sourceware.org/gdb/current/onlinedocs/gdb/Tracepoint-Packets.html */
 static int
 gtp_gdbrsp_qtsp(void)
 {
@@ -10348,6 +10465,7 @@ out:
 	return 1;
 }
 
+/* see qTfV and qTsV: https://sourceware.org/gdb/current/onlinedocs/gdb/Tracepoint-Packets.html */
 static int
 gtp_gdbrsp_qtfsv(int f)
 {
@@ -10425,6 +10543,7 @@ gtp_rb_traceframe_get_tv(void *buf, u64 id, unsigned int num, uint64_t *val)
 }
 #endif
 
+/* see qTV:var : https://sourceware.org/gdb/current/onlinedocs/gdb/Tracepoint-Packets.html */
 static int
 gtp_gdbrsp_qtv(char *pkg)
 {
@@ -10577,6 +10696,7 @@ output_value:
 	return 1;
 }
 
+/* the driver of GDBRSP qT: https://sourceware.org/gdb/current/onlinedocs/gdb/Tracepoint-Packets.html */
 static int
 gtp_gdbrsp_qT(char *pkg)
 {
@@ -10805,6 +10925,7 @@ gtp_gdbrsp_qxfer_traceframe_info_read(char *pkg)
 
 static uint8_t	gtp_m_buffer[0xffff];
 
+/* see m addr,length : https://www.sourceware.org/gdb/onlinedocs/gdb/Packets.html#Packets */
 static int
 gtp_gdbrsp_m(char *pkg)
 {
@@ -11065,6 +11186,7 @@ gtp_rb_traceframe_get_regs(void)
 }
 #endif
 
+/* see g : https://www.sourceware.org/gdb/onlinedocs/gdb/Packets.html#Packets */
 static int
 gtp_gdbrsp_g(void)
 {
@@ -11153,6 +11275,7 @@ out:
 	return 1;
 }
 
+/* see vAttach: https://www.sourceware.org/gdb/onlinedocs/gdb/Packets.html#Packets */
 static int
 gtp_gdbrsp_vAttach(char *pkg)
 {
@@ -11172,6 +11295,7 @@ gtp_gdbrsp_vAttach(char *pkg)
 	return 1;
 }
 
+/* see D : https://www.sourceware.org/gdb/onlinedocs/gdb/Packets.html#Packets */
 static void
 gtp_gdbrsp_D(char *pkg)
 {
@@ -11192,7 +11316,6 @@ gtp_gdbrsp_D(char *pkg)
 }
 
 /* Handle H + OP + thread-id packet. */
-
 static int
 gtp_gdbrsp_H(char *pkg)
 {
@@ -11213,6 +11336,7 @@ gtp_gdbrsp_H(char *pkg)
 	return 0;
 }
 
+/* see qRcmd : https://www.sourceware.org/gdb/onlinedocs/gdb/General-Query-Packets.html#General-Query-Packets */
 static int
 gtp_gdbrsp_qRcmd(char *pkg)
 {
@@ -11432,6 +11556,7 @@ gtp_traceframe_check(void *entry)
    Return == 0 is OK.
    Return > 0 is to the end.  */
 
+/* see bc : https://www.sourceware.org/gdb/onlinedocs/gdb/Packets.html#Packets */
 static int
 gtp_gdbrsp_step_forward(void)
 {
@@ -11477,6 +11602,7 @@ end_out:
    Return == 0 is OK.
    Return > 0 is to the end.  */
 
+/* see bs : https://www.sourceware.org/gdb/onlinedocs/gdb/Packets.html#Packets */
 static int
 gtp_gdbrsp_step_reverse(void)
 {
@@ -11691,6 +11817,7 @@ gtp_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 }
 #endif
 
+/* GDB sends rsp package through ProcFS or DebugFS, interpreting commands see : https://www.sourceware.org/gdb/onlinedocs/gdb/Packets.html#Packets */
 static ssize_t
 gtp_write(struct file *file, const char __user *buf, size_t size,
 	  loff_t *ppos)
@@ -11981,6 +12108,7 @@ gtp_poll(struct file *file, poll_table *wait)
 	return mask;
 }
 
+/* frame to file : registers */
 static int
 gtp_frame2file_r(struct gtp_realloc_s *grs, uint32_t *data_size, char *frame)
 {
@@ -12004,6 +12132,7 @@ gtp_frame2file_r(struct gtp_realloc_s *grs, uint32_t *data_size, char *frame)
 	return 0;
 }
 
+/* frame to file: memeory */
 static int
 gtp_frame2file_m(struct gtp_realloc_s *grs, uint32_t *data_size, char *frame)
 {
@@ -12055,6 +12184,7 @@ gtp_frame2file_m(struct gtp_realloc_s *grs, uint32_t *data_size, char *frame)
 	return 0;
 }
 
+/* frame to file : variable */
 static int
 gtp_frame2file_v(struct gtp_realloc_s *grs, uint32_t *data_size, char *frame)
 {
@@ -12722,7 +12852,7 @@ get_new_page:
 
 	return ret;
 }
-#else
+#else // #ifndef GTP_RB
 static int
 gtpframe_pipe_peek(void)
 {
@@ -13258,6 +13388,7 @@ out:
 }
 EXPORT_SYMBOL(gtp_plugin_var_del);
 
+/* well, the game is over */
 static void
 gtp_release_all_mod(void)
 {
