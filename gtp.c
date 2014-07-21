@@ -13535,6 +13535,22 @@ out:
 #ifdef GTP_DEBUG
 	printk(GTP_DEBUG "gtp inserted\n");
 #endif
+
+    // check the config of ring buffer
+#ifdef GTP_DEBUG
+#ifdef GTP_FTRACE_RING_BUFFER
+	printk(GTP_DEBUG "GTP_FTRACE_RING_BUFFER defined\n");
+#endif
+#ifdef GTP_RB
+	printk(GTP_DEBUG "GTP_RB defined\n");
+#endif
+#ifdef GTP_FRAME_SIMPLE
+	printk(GTP_DEBUG "GTP_FRAME_SIMPLE defined\n");
+#endif 
+#ifdef GTP_SELF_RING_BUFFER
+	printk(GTP_DEBUG "GTP_SELF_RING_BUFFER defined\n");
+#endif 
+#endif
 	return ret;
 }
 
