@@ -9134,14 +9134,38 @@ gtp_gdbrsp_qtbuffer(char *pkg)
     else if (strncmp("size:", pkg, 5) == 0) {
 
 		ULONGEST size;
+        int unlimited_or_not;
 
         pkg += 5;
 
 		if (pkg[0] == '\0')
 			return -EINVAL;
-		hex2ulongest(pkg, &size);
+
+        // The size may equal to -1, so compare the pkg with "-1"
+        if((strncmp("-1", pkg, 2) == 0) && (*(pkg + 2) == '\0')) {
+            unlimited_or_not = 1;
+        }
+
+        if(unlimited_or_not == 1) {
+            // The user wants KGTP to choose the right size
+            // So we just ignore the request
+
+#ifdef GTP_DEBUG
+	printk(GTP_DEBUG "gtp_gdbrsp_qtbuffer:keep buffer size as the user tells KGTP to use unlimited size");
+#endif
+
+            return 0;
+        }
+
+        // User wants to change the buffer size
+        hex2ulongest(pkg, &size);
+
+#ifdef GTP_DEBUG
+	printk(GTP_DEBUG "gtp_gdbrsp_qtbuffer:setting buffer size to %ld\n", size);
+#endif
 
         // Handle the new ringbuffer size blow
+        // gtp_set_trace_buffer_size(size);
 
         return 0;
     }
