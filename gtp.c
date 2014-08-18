@@ -34,7 +34,7 @@
 #ifdef GTP_FRAME_SIMPLE
 /* This is a debug option.
    This define is for simple frame alloc record, then we can get how many
-   memory are weste by FRAME_ALIGN. */
+   memory are wasted by FRAME_ALIGN. */
 /* #define FRAME_ALLOC_RECORD */
 #undef GTP_RB // GTP_FRAME_SIMPLE and GTP_RB are not used at the same time
 #endif
