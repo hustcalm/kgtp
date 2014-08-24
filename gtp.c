@@ -218,7 +218,7 @@ enum {
 };
 
 /* GTP_FRAME_SIZE must align with FRAME_ALIGN_SIZE if use GTP_FRAME_SIMPLE.  */
-#define GTP_FRAME_SIZE		5242880
+#define GTP_FRAME_SIZE		5242880 // 5*1024*1024 = 5MB
 #if defined(GTP_FRAME_SIMPLE) || defined(GTP_RB)
 #define FRAME_ALIGN_SIZE	sizeof(unsigned int)
 #define FRAME_ALIGN(x)		((x + FRAME_ALIGN_SIZE - 1) \
@@ -462,6 +462,11 @@ static int			gtp_start;
 
 static int			gtp_disconnected_tracing;
 static int			gtp_circular;
+
+#define SET_TRACE_BUFFER_SIZE_HANDLER_SIMPLE 0
+static int          gtp_set_trace_buffer_size_handler; /* 0:simple, 1:normal */
+static ULONGEST     gtp_trace_buffer_size;
+
 #if defined(GTP_FTRACE_RING_BUFFER)			\
     && (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,39))	\
     && !defined(GTP_SELF_RING_BUFFER)
@@ -9164,13 +9169,50 @@ gtp_gdbrsp_qtbuffer(char *pkg)
 	printk(GTP_DEBUG "gtp_gdbrsp_qtbuffer:setting buffer size to %ld\n", size);
 #endif
 
-        // Handle the new ringbuffer size blow
-        // gtp_set_trace_buffer_size(size);
+        // Handler of the new ringbuffer size blow
+        int ret;
+        if(gtp_set_trace_buffer_size_handler == SET_TRACE_BUFFER_SIZE_HANDLER_SIMPLE) {
+            ret = gtp_set_trace_buffer_size_simple(size);
+        }
+        else {
+            ret = gtp_set_trace_buffer_size(size);
+        }
 
-        return 0;
+        if(ret == 0) {
+            // Set new size of trace buffer
+            gtp_trace_buffer_size = size;
+            return 0;
+        }
     }
 
 	return 1;
+}
+
+/*
+ * Set the trace frame buffer size specified by user the simple way
+ * Initialy we got GTP_FRAME_SIZE = 5242880 bytes = 5MB
+ * Despite the new_size compared with GTP_FRAME_SIZE, just drop all the old gtp frames and allocate a new Ring Buffer
+ * However, if the new_size is too small, return ERROR
+ * Need to implement 3 strategies of Ring Buffer, GTP_FRAME_SIMPLE, GTP_FTRACE_RING_BUFFER and GTP_RB
+ */
+static int
+gtp_set_trace_buffer_size_simple(ULONGEST size)
+{
+    return 0;
+}
+
+/*
+ * Set the trace frame buffer size specified by user the hard way
+ * Initialy we got GTP_FRAME_SIZE = 5242880 bytes = 5MB
+ * If new_size >= GTP_FRAME_SIZE, then allocate new Ring Buffer and copy data to new buffer
+ * Else allocate new Ring Buffer and discarding some data when copy to new buffer
+ * However, if the new_size is too small, return ERROR
+ * Need to implement 3 strategies of Ring Buffer, GTP_FRAME_SIMPLE, GTP_FTRACE_RING_BUFFER and GTP_RB
+ */
+static int
+gtp_set_trace_buffer_size(ULONGEST size)
+{
+    return 0;
 }
 
 static int
@@ -10242,6 +10284,11 @@ gtp_get_status(struct gtp_entry *tpe, char *buf, int bufmax)
 	buf += strlen(buf);
 
 	snprintf(buf, bufmax, "circular:%x;", gtp_circular);
+	size += strlen(buf);
+	bufmax -= strlen(buf);
+	buf += strlen(buf);
+
+	snprintf(buf, bufmax, "trace_buffer_size:%llx;", gtp_trace_buffer_size);
 	size += strlen(buf);
 	bufmax -= strlen(buf);
 	buf += strlen(buf);
@@ -13391,6 +13438,8 @@ static int __init gtp_init(void)
 	gtp_start = 0;
 	gtp_disconnected_tracing = 0;
 	gtp_circular = 0;
+    gtp_set_trace_buffer_size_handler = 0; /* Default use the simple hanlder, discard all the old frames */
+    gtp_trace_buffer_size = GTP_FRAME_SIZE;
 #if defined(GTP_FTRACE_RING_BUFFER)			\
     && (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,39))	\
     && !defined(GTP_SELF_RING_BUFFER)
