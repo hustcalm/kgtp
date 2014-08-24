@@ -466,6 +466,8 @@ static int			gtp_circular;
 #define SET_TRACE_BUFFER_SIZE_HANDLER_SIMPLE 0
 static int          gtp_set_trace_buffer_size_handler; /* 0:simple, 1:normal */
 static ULONGEST     gtp_trace_buffer_size;
+static int          gtp_set_trace_buffer_size_simple(ULONGEST size);
+static int          gtp_set_trace_buffer_size(ULONGEST size);
 
 #if defined(GTP_FTRACE_RING_BUFFER)			\
     && (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,39))	\
@@ -9138,6 +9140,7 @@ gtp_gdbrsp_qtbuffer(char *pkg)
     // Handle QTBuffer:size:size 
     else if (strncmp("size:", pkg, 5) == 0) {
 
+        int ret;
 		ULONGEST size;
         int unlimited_or_not;
 
@@ -9166,11 +9169,10 @@ gtp_gdbrsp_qtbuffer(char *pkg)
         hex2ulongest(pkg, &size);
 
 #ifdef GTP_DEBUG
-	printk(GTP_DEBUG "gtp_gdbrsp_qtbuffer:setting buffer size to %ld\n", size);
+	printk(GTP_DEBUG "gtp_gdbrsp_qtbuffer:setting buffer size to %lld\n", size);
 #endif
 
         // Handler of the new ringbuffer size blow
-        int ret;
         if(gtp_set_trace_buffer_size_handler == SET_TRACE_BUFFER_SIZE_HANDLER_SIMPLE) {
             ret = gtp_set_trace_buffer_size_simple(size);
         }
