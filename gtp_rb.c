@@ -27,7 +27,7 @@
 #define GTP_RB_PREV(addr)	(*(void **)GTP_RB_HEAD(addr))
 #define GTP_RB_NEXT(addr)	(*(void **)GTP_RB_END(addr))
 #define GTP_RB_DATA_MAX		(PAGE_SIZE - ADDR_SIZE - ADDR_SIZE - FID_SIZE \
-				 - sizeof(u64))
+				 - sizeof(u64)) /* How many bytes can store data in a GTP_RB page? */
 
 struct gtp_rb_s {
 	spinlock_t	lock;
@@ -82,7 +82,7 @@ gtp_rb_init(void)
 	if (!gtp_rb)
 		return -ENOMEM;
 
-    // Initialize by iterating each CPU
+    // Initialize each gtp ring buffer entry by iterating each CPU
 	for_each_online_cpu(cpu) {
 		struct gtp_rb_s	*rb
 			= (struct gtp_rb_s *)per_cpu_ptr(gtp_rb, cpu);
@@ -90,14 +90,14 @@ gtp_rb_init(void)
 		rb->lock = __SPIN_LOCK_UNLOCKED(rb->lock);
 		rb->cpu = cpu;
 	}
-	gtp_rb_page_count = 0;
+	gtp_rb_page_count = 0; /* How many pages do we have in Ring Buffer? */
 	atomic_set(&gtp_rb_discard_page_number, 0);
 
 	return 0;
 }
 
 /**
- * Free the ring buffer
+ * Free the ring buffer entry
  */
 static void
 gtp_rb_release(void)
@@ -176,7 +176,7 @@ gtp_rb_page_alloc(int size)
 
 		while (1) {
 			if (current_size > 0)
-				current_size -= PAGE_SIZE;
+				current_size -= PAGE_SIZE; /* Determined by PAGE_SHIFT, typically 12, that makes 4K bytes one page */
 			else
 				break;
 

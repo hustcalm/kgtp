@@ -29,7 +29,7 @@
 #endif
 
 /* Sepcial config */
-#define GTP_RB
+#define GTP_RB // GTP_RB is the own implementation ring buffer of KGTP
 
 #ifdef GTP_FRAME_SIMPLE
 /* This is a debug option.
@@ -53,14 +53,14 @@
 /* If user intends to use DebugFS but got problems, give hints to use ProcFS instead. */
 #ifndef USE_PROC
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,11))
-#warning If got some build error about debugfs, you can use "USE_PROC=1" handle it.
+#warning If got some build error about debugfs, you can use "USE_PROC=1" to handle it.
 #endif
 #endif
 
 /* If user intends to use FTRACE_RING_BUFFER but got problems, give hints to use FRAME_SIMPLE instead. */
 #ifdef GTP_FTRACE_RING_BUFFER
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,30))
-#warning If got some build error about ring buffer, you can use "FRAME_SIMPLE=1" handle it.
+#warning If got some build error about ring buffer, you can use "FRAME_SIMPLE=1" to handle it.
 #endif
 #endif
 
@@ -73,7 +73,7 @@
 
 #ifndef GTP_CLOCK_CYCLE
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,24))
-#warning If got some build error about cpu_clock or local_clock, you can use "CLOCK_CYCLE=1" handle it.
+#warning If got some build error about cpu_clock or local_clock, you can use "CLOCK_CYCLE=1" to handle it.
 #endif
 #endif
 
@@ -86,7 +86,7 @@
 #define CONFIG_RING_BUFFER
 #include "ring_buffer.h"
 #include "ring_buffer.c"
-#define GTP_SELF_RING_BUFFER // use the modified ring buffer from Linux kernel
+#define GTP_SELF_RING_BUFFER // use the modified ring buffer from Linux kernel used by Ftrace
 #warning Use the ring buffer inside KGTP.
 #endif // end for ifndef CONFIG_RING_BUFFER
 #endif
@@ -186,7 +186,7 @@
 #ifndef CONFIG_PROC_FS
 #error "Linux Kernel doesn't support procfs."
 #endif
-#else // ProcFS not used
+#else // ProcFS not used, try DebugFS
 #ifndef CONFIG_DEBUG_FS
 #error "Linux Kernel doesn't support debugfs."
 #endif
@@ -215,7 +215,7 @@
 /* #define GTP_DEBUG_V */
 
 #define GTP_RW_MAX		16384 // 16*1024
-#define GTP_RW_BUFP_MAX		(GTP_RW_MAX - 4 - gtp_rw_size)
+#define GTP_RW_BUFP_MAX		(GTP_RW_MAX - 4 - gtp_rw_size) /* Minus $#XX and gtp_rw_size for gpt_rw_buf */
 
 #define FID_TYPE		unsigned int
 #define FID_SIZE		sizeof(FID_TYPE)
@@ -231,12 +231,13 @@ enum {
 };
 
 /* GTP_FRAME_SIZE must align with FRAME_ALIGN_SIZE if use GTP_FRAME_SIMPLE.  */
-#define GTP_FRAME_SIZE		5242880
+#define GTP_FRAME_SIZE		5242880 // 5120*1024=5*1024*1024, that is 5MB
 #if defined(GTP_FRAME_SIMPLE) || defined(GTP_RB)
 #define FRAME_ALIGN_SIZE	sizeof(unsigned int)
 #define FRAME_ALIGN(x)		((x + FRAME_ALIGN_SIZE - 1) \
 				 & (~(FRAME_ALIGN_SIZE - 1)))
 #endif // GTP_FRAME_SIMPLE or GTP_RB defined
+
 #ifdef GTP_FRAME_SIMPLE
 #define GTP_FRAME_HEAD_SIZE	(FID_SIZE + sizeof(char *) + sizeof(ULONGEST))
 #define GTP_FRAME_REG_SIZE	(FID_SIZE + sizeof(char *) \
@@ -246,15 +247,18 @@ enum {
 #define GTP_FRAME_VAR_SIZE	(FID_SIZE + sizeof(char *) \
 				 + sizeof(struct gtp_frame_var))
 #endif // end for ifdef GTP_FRAME_SIMPLE
+
 #ifdef GTP_RB
 /* The frame head size: FID_HEAD + count id + frame number + pointer to prev frem */
 #define GTP_FRAME_HEAD_SIZE	(FID_SIZE + sizeof(u64) + sizeof(ULONGEST) + sizeof(void *))
 /* The frame head size: FID_PAGE_BEGIN + count id */
 #define GTP_FRAME_PAGE_BEGIN_SIZE	(FID_SIZE + sizeof(u64))
 #endif // end for ifdef GTP_RB
+
 #ifdef GTP_FTRACE_RING_BUFFER
 #define GTP_FRAME_HEAD_SIZE	(FID_SIZE + sizeof(ULONGEST))
 #endif // end for ifdef GTP_FTRACE_RING_BUFFER
+
 #if defined(GTP_FTRACE_RING_BUFFER) || defined(GTP_RB)
 #define GTP_FRAME_REG_SIZE	(FID_SIZE + sizeof(struct pt_regs))
 #define GTP_FRAME_MEM_SIZE	(FID_SIZE + sizeof(struct gtp_frame_mem))
@@ -539,7 +543,7 @@ static int			gtp_noack_mode;
 static pid_t			gtp_current_pid;
 
 /* gtpd_task->pid is used as the pid of Linux kernel.  */
-static struct task_struct	*gtpd_task;
+static struct task_struct	*gtpd_task; /* the gtpd process descriptor */
 
 #ifdef CONFIG_X86
 /* Following part is for while-stepping.  */
@@ -4297,7 +4301,7 @@ gtp_action_r(struct gtp_trace_s *gts, struct action *ae)
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,30))
 static DEFINE_SPINLOCK(gtp_handler_enable_disable_loc);
 
-/* enable or disable the handler */
+/* enable or disable the tracepoint */
 static void
 gtp_handler_enable_disable(struct gtp_trace_s *gts, ULONGEST val, int enable)
 {
@@ -5109,7 +5113,7 @@ gtp_step_stop(struct pt_regs *regs)
 }
 #endif // end for #ifdef CONFIG_X86
 
-/* this is the driver for all the requests of trace points */
+/* this is the driver for all the requests of tracepoints */
 static void
 gtp_handler(struct gtp_trace_s *gts)
 {
@@ -6374,6 +6378,9 @@ gtp_hwb_type_to_arch(int type)
 	return ret;
 }
 
+/*
+ * Register hardware breakpoint
+ */
 static int
 gtp_register_hwb(const struct gtp_hwb_s *arg, int nowait)
 {
@@ -6445,6 +6452,9 @@ out:
 	return ret;
 }
 
+/*
+ * Unregister hardware breakpoint
+ */
 static int
 gtp_unregister_hwb(CORE_ADDR addr, int sync)
 {
@@ -8211,11 +8221,11 @@ gtp_gdbrsp_qtstart(void)
 	printk(GTP_DEBUG "gtp_gdbrsp_qtstart\n");
 #endif
 
-	if (gtp_start)
+	if (gtp_start) /* Already running */
 		return -EBUSY;
 
 #ifdef GTP_FTRACE_RING_BUFFER
-	if (!tracing_is_on()) { // use the infrastructure of Ftrace
+	if (!tracing_is_on()) { // use the infrastructure of Ftrace, ensure Ring buffer is on
 		printk(KERN_WARNING "qtstart: Ring buffer is off.  Please use "
 		       "command "
 		       "\"echo 1 > /sys/kernel/debug/tracing/tracing_on\" "
@@ -8227,18 +8237,18 @@ gtp_gdbrsp_qtstart(void)
 	/* Setup the gtp_var_array.
 	   It must be setup before action because action need it.  */
 	gtp_var_array = kcalloc(gtp_var_num, sizeof(struct gtp_var *),
-				GFP_KERNEL);
+				GFP_KERNEL); /* Allocate memory for gtp variables, total gtp_var_num variables in total */
 	if (!gtp_var_array)
 		return -ENOMEM;
 	i = 0;
 	list_for_each(cur, &gtp_var_list) {
 		var = list_entry(cur, struct gtp_var, node);
-		gtp_var_array[i] = var;
+		gtp_var_array[i] = var; /* Iterate to assign gtp variable */
 		i++;
 	}
 
 #ifdef GTP_RB
-	var = gtp_var_find_num(GTP_STEP_ID_ID);
+	var = gtp_var_find_num(GTP_STEP_ID_ID); /* Need step_id when using GTP_RB */
 	if (var == NULL) {
 		printk(KERN_WARNING "KGTP: cannot get $step_id.\n");
 		return -EINVAL;
@@ -8444,7 +8454,7 @@ next_list:
     && (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,39))	\
     && !defined(GTP_SELF_RING_BUFFER)
 	if (gtp_frame && gtp_circular_is_changed) {
-		ring_buffer_free(gtp_frame);
+		ring_buffer_free(gtp_frame); /* Discard all the old gtp frames */
 		gtp_frame = NULL;
 	}
 	gtp_circular_is_changed = 0;
@@ -8452,7 +8462,7 @@ next_list:
 
 #ifdef GTP_RB
 	if (GTP_RB_PAGE_IS_EMPTY) {
-		if (gtp_rb_page_alloc(GTP_FRAME_SIZE) != 0) {
+		if (gtp_rb_page_alloc(GTP_FRAME_SIZE) != 0) { /* Allocate memory pages used by GTP_RB */
 			ret = -ENOMEM;
 			goto out;
 		}
@@ -8460,18 +8470,18 @@ next_list:
 #if defined(GTP_FRAME_SIMPLE) || defined(GTP_FTRACE_RING_BUFFER)
 	if (!gtp_frame) {
 #ifdef GTP_FRAME_SIMPLE
-		gtp_frame = vmalloc(GTP_FRAME_SIZE);
+		gtp_frame = vmalloc(GTP_FRAME_SIZE); /* Allocate memory used by GTP_FRAME_SIMPLE */
 #endif
 #ifdef GTP_FTRACE_RING_BUFFER
 		gtp_frame = ring_buffer_alloc(GTP_FRAME_SIZE,
 					      gtp_circular ? RB_FL_OVERWRITE
-							     : 0);
+							     : 0); /* Allocate memory used by GTP_FTRACE_RING_BUFFER */
 #endif
-		if (!gtp_frame) {
+		if (!gtp_frame) { /* Allocation failed */
 			ret = -ENOMEM;
 			goto out;
 		}
-#endif
+#endif // #if defined(GTP_FRAME_SIMPLE) || defined(GTP_FTRACE_RING_BUFFER)
 
 		gtp_frame_reset();
 	}
@@ -8486,7 +8496,7 @@ next_list:
 		per_cpu(gtp_handler_began, cpu) = 0;
 	}
 
-	gtp_start = 1;
+	gtp_start = 1; /* Start Trace Experiment */
 
 #ifdef GTP_PERF_EVENTS
 	/* Clear pc_pe_list.  */
@@ -8562,10 +8572,10 @@ next_list:
 					= 0;
 		}
 	}
-#endif
+#endif // #ifdef GTP_PERF_EVENTS
 
 #if defined(GTP_FTRACE_RING_BUFFER) || defined(GTP_RB)
-	tasklet_init(&gtpframe_pipe_wq_tasklet, gtpframe_pipe_wq_wake_up, 0);
+	tasklet_init(&gtpframe_pipe_wq_tasklet, gtpframe_pipe_wq_wake_up, 0); /* Trace frame data in gtpframe_pipe, same as gtpframe, but will delete when the data is read just like 'trace pipe` in ftrace */
 #endif
 
 	/* Init tracepoint and do last tracepoint check. */
@@ -8586,7 +8596,7 @@ next_list:
 #else
 		    )) {
 #endif
-			printk(KERN_WARNING "KGTP: $kret cannot use with while-stepping or watch.\n");
+			printk(KERN_WARNING "KGTP: $kret cannot be used with while-stepping or watch.\n");
 			gtp_gdbrsp_qtstop();
 			return -EINVAL;
 		}
@@ -8654,7 +8664,7 @@ next_list:
 				breakinfo[num].num = i;
 			}
 		}
-#endif
+#endif // #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,0,0))
 
 		gtp_hwb_stop(NULL);
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,27))
@@ -8700,7 +8710,7 @@ next_list:
 			gtp_gdbrsp_qtstop();
 			return ret;
 		}
-#endif
+#endif // #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,27))
 
 		/* Register static watch.  */
 		for (tpe = gtp_list; tpe; tpe = tpe->next) {
@@ -9205,10 +9215,11 @@ gtp_gdbrsp_qtbuffer(char *pkg)
 			return -EINVAL;
 		hex2ulongest(pkg, &setting);
 
+
 #ifdef GTP_FTRACE_RING_BUFFER
 #if (LINUX_VERSION_CODE > KERNEL_VERSION(2,6,38)) \
     || defined(GTP_SELF_RING_BUFFER)
-		gtp_circular = (int)setting;
+		gtp_circular = (int)setting; /* The value of the circular trace buffer flag. 1 means that the trace buffer is circular and old trace frames will be discarded if necessary to make room, 0 means that the trace buffer is linear and may fill up */
 		if (gtp_frame)
 			ring_buffer_change_overwrite(gtp_frame, (int)setting);
 #else
@@ -9505,6 +9516,7 @@ gtp_gdbrsp_qtframe(char *pkg)
 		goto out;
 
 	if (strncmp(pkg, "pc:", 3) == 0) {
+        // Like ‘QTFrame:n’, but select the first tracepoint frame after the currently selected frame whose PC is addr; addr is a hexadecimal number
 		ULONGEST	addr;
 
 		pkg += 3;
@@ -9516,6 +9528,7 @@ gtp_gdbrsp_qtframe(char *pkg)
 		ret = gtp_frame_head_find_addr(1, (unsigned long)addr,
 					       (unsigned long)addr);
 	} else if (strncmp(pkg, "tdp:", 4) == 0) {
+        // Like ‘QTFrame:n’, but select the first tracepoint frame after the currently selected frame that is a hit of tracepoint t; t is a hexadecimal number
 		ULONGEST	trace;
 
 		pkg += 4;
@@ -9526,6 +9539,7 @@ gtp_gdbrsp_qtframe(char *pkg)
 
 		ret = gtp_frame_head_find_trace(trace);
 	} else if (strncmp(pkg, "range:", 6) == 0) {
+        // Like ‘QTFrame:n’, but select the first tracepoint frame after the currently selected frame whose PC is between start (inclusive) and end (inclusive); start and end are hexadecimal numbers
 		ULONGEST	start, end;
 
 		pkg += 6;
@@ -9541,6 +9555,7 @@ gtp_gdbrsp_qtframe(char *pkg)
 		ret = gtp_frame_head_find_addr(1, (unsigned long)start,
 					       (unsigned long)end);
 	} else if (strncmp(pkg, "outside:", 8) == 0) {
+        // Like ‘QTFrame:range:start:end’, but select the first frame outside the given range of addresses (exclusive)
 		ULONGEST	start, end;
 
 		pkg += 8;
@@ -9556,6 +9571,7 @@ gtp_gdbrsp_qtframe(char *pkg)
 		ret = gtp_frame_head_find_addr(0, (unsigned long)start,
 					       (unsigned long)end);
 	} else {
+        // ‘QTFrame:n’, Select the n’th tracepoint frame from the buffer, and use the register and memory contents recorded there to answer subsequent request packets from GDB
 		ULONGEST	num;
 
 		if (pkg[0] == '\0')
@@ -9594,7 +9610,7 @@ out:
 		else
 			gtp_frame_head_find_num(old_num);
 #endif
-		snprintf(gtp_rw_bufp, GTP_RW_BUFP_MAX, "F-1");
+		snprintf(gtp_rw_bufp, GTP_RW_BUFP_MAX, "F-1"); // The selected frame is number n in the trace frame buffer; f is a hexadecimal number. If f is ‘-1’, then there was no frame matching the criteria in the request packet
 		gtp_rw_bufp += 3;
 		gtp_rw_size += 3;
 	} else {
@@ -9620,8 +9636,10 @@ out:
 #endif
 		snprintf(gtp_rw_bufp, GTP_RW_BUFP_MAX, "F%xT%x",
 			 gtp_frame_current_num,
-			 (unsigned int) gtp_frame_current_tpe);
-		gtp_rw_size += strlen(gtp_rw_bufp);
+			 (unsigned int) gtp_frame_current_tpe); // The selected trace frame records a hit of tracepoint number t; t is a hexadecimal number.
+        
+        // http://www.cplusplus.com/reference/cstdio/snprintf/, A terminating null character is automatically appended after the content written, so we can safely use strlen(gtp_rw_bufp)
+		gtp_rw_size += strlen(gtp_rw_bufp); 
 		gtp_rw_bufp += strlen(gtp_rw_bufp);
 	}
 	return 1;
@@ -11684,8 +11702,8 @@ gtp_gdbrsp_resume(int step, int reverse)
 	return 1;
 }
 
-static DEFINE_SEMAPHORE(gtp_rw_lock);
-static DECLARE_WAIT_QUEUE_HEAD(gtp_rw_wq);
+static DEFINE_SEMAPHORE(gtp_rw_lock); /* define a semaphore, default value is 1 */
+static DECLARE_WAIT_QUEUE_HEAD(gtp_rw_wq); /* declare a wait queue */
 static unsigned int	gtp_rw_count;
 static unsigned int	gtp_frame_count;
 
@@ -11693,7 +11711,7 @@ static void
 gtp_frame_count_get(void)
 {
 	if (gtp_frame_count == 0)
-		gtp_plugin_mod_get();
+		gtp_plugin_mod_get(); /* Collect gtp plugin modules */
 	
 	gtp_frame_count++;
 }
@@ -11727,6 +11745,7 @@ gtp_frame_count_put(void)
 	}
 }
 
+/* Key function for communication bewteen GDB and KGTP through GDBRSP, open a file for user space<--> kernel space */
 static int
 gtp_open(struct inode *inode, struct file *file)
 {
@@ -11734,22 +11753,22 @@ gtp_open(struct inode *inode, struct file *file)
 
 	down(&gtp_rw_lock);
 	if (gtp_gtp_pid >= 0) {
-		if (get_current()->pid != gtp_gtp_pid) {
+		if (get_current()->pid != gtp_gtp_pid) { /* Not KGTP process */
 			ret = -EBUSY;
 			goto out;
 		}
 	}
 	gtp_noack_mode = 0;
 
-	if (gtp_rw_count == 0) {
+	if (gtp_rw_count == 0) { /* First time, do initialization */
 		gtp_read_ack = 0;
-		gtp_rw_buf = vmalloc(GTP_RW_MAX);
+		gtp_rw_buf = vmalloc(GTP_RW_MAX); /* Get memory from VMALLOC region for read and write buffer */
 		if (!gtp_rw_buf) {
 			ret = -ENOMEM;
 			goto out;
 		}
-		gtp_rw_bufp = gtp_rw_buf;
-		gtp_rw_size = 0;
+		gtp_rw_bufp = gtp_rw_buf; /* gtp_rw_bufp will alter and gtp_rw_buf will remain as the starting address */
+		gtp_rw_size = 0; /* Current size */
 	}
 	gtp_rw_count++;
 
@@ -11773,7 +11792,7 @@ gtp_release(struct inode *inode, struct file *file)
 	down(&gtp_rw_lock);
 	gtp_rw_count--;
 	if (gtp_rw_count == 0) {
-		vfree(gtp_rw_buf);
+		vfree(gtp_rw_buf); /* Free the memory of gtp_rw_buf */
 
 		if (gtp_replay_step_id)
 			gtp_replay_reset();
@@ -11781,7 +11800,7 @@ gtp_release(struct inode *inode, struct file *file)
 		gtp_breakpoints_release();
 	}
 
-	gtp_frame_count_put();
+	gtp_frame_count_put(); /* Release all the plugin modules and free gtp frame buffer */
 
 	gtp_gtp_pid_count--;
 	if (gtp_gtp_pid_count == 0) {
@@ -11828,7 +11847,7 @@ gtp_write(struct file *file, const char __user *buf, size_t size,
 	int		is_reverse;
 
 	if (down_interruptible(&gtp_rw_lock))
-		return -EINTR;
+		return -EINTR; /* Interrupted system call */
 
 	if (size == 0) {
 #ifdef GTP_DEBUG
@@ -11837,14 +11856,14 @@ gtp_write(struct file *file, const char __user *buf, size_t size,
 		goto error_out;
 	}
 
-	size = min_t(size_t, size, GTP_RW_MAX);
-	if (copy_from_user(gtp_rw_buf, buf, size)) {
+	size = min_t(size_t, size, GTP_RW_MAX); /* At most user can write GTP_RW_MAX */
+	if (copy_from_user(gtp_rw_buf, buf, size)) { /* Copy GDB packet from user to KGTP */
 		size = -EFAULT;
 		goto error_out;
 	}
 
 	if (gtp_rw_buf[0] == '+' || gtp_rw_buf[0] == '-'
-	    || gtp_rw_buf[0] == '\3' || gtp_rw_buf[0] == '\n') {
+	    || gtp_rw_buf[0] == '\3' || gtp_rw_buf[0] == '\n') { /* GDB response packet */
 		if (gtp_rw_buf[0] == '+')
 			gtp_rw_size = 0;
 		size = 1;
@@ -11852,21 +11871,21 @@ gtp_write(struct file *file, const char __user *buf, size_t size,
 	}
 
 	if (size < 4) {
-		size = -EINVAL;
+		size = -EINVAL; /* Invalid argument */
 		goto error_out;
 	}
-	/* Check format and get the rsppkg.  */
+	/* Check format and get the rsppkg. RSP packets begin with a dollar sign ($), followed by one or more ASCII bytes that make up the message being sent, and end with a pound sign (#) and two ASCII hex characters representing the message’s checksum */
 	for (i = 0; i < size - 2; i++) {
-		if (gtp_rw_buf[i] == '$')
+		if (gtp_rw_buf[i] == '$') /* A packet begins with $ */
 			rsppkg = gtp_rw_buf + i + 1;
-		else if (gtp_rw_buf[i] == '#')
+		else if (gtp_rw_buf[i] == '#') /* A packet ends with # */
 			break;
 	}
 	if (rsppkg && gtp_rw_buf[i] == '#') {
 		/* Format is OK.  Check crc.  */
 		if (gtp_noack_mode < 1)
 			gtp_read_ack = 1;
-		size = i + 3;
+		size = i + 3; /* two ASCII hex characters representing the message's checksum */
 		gtp_rw_buf[i] = '\0';
 	} else {
 		printk(KERN_WARNING "gtp_write: format error\n");
@@ -11874,9 +11893,9 @@ gtp_write(struct file *file, const char __user *buf, size_t size,
 		goto error_out;
 	}
 
-	wake_up_interruptible_nr(&gtp_rw_wq, 1);
+	wake_up_interruptible_nr(&gtp_rw_wq, 1); /* Awaken up to 1 exclusive waiters */
 
-	up(&gtp_rw_lock);
+	up(&gtp_rw_lock); /* Give chances to other threads temporarily */
 	if (down_interruptible(&gtp_rw_lock))
 		return -EINTR;
 
@@ -11890,23 +11909,24 @@ gtp_write(struct file *file, const char __user *buf, size_t size,
 	gtp_rw_size = 0;
 	ret = 1;
 	is_reverse = 0;
+    /* https://sourceware.org/gdb/current/onlinedocs/gdb/Packets.html */
 	switch (rsppkg[0]) {
-	case '?':
+	case '?': /* Indicate the reason the target halted */
 		if (gtp_current_pid == 0)
-			snprintf(gtp_rw_bufp, GTP_RW_BUFP_MAX, "S05");
+			snprintf(gtp_rw_bufp, GTP_RW_BUFP_MAX, "S05"); /* https://sourceware.org/gdb/current/onlinedocs/gdb/Stop-Reply-Packets.html#Stop-Reply-Packets */
 		else
 			snprintf(gtp_rw_bufp, GTP_RW_BUFP_MAX, "T05;thread:p%x.%x;",
 				 gtp_current_pid, gtp_current_pid);
-		gtp_rw_size += strlen(gtp_rw_bufp);
-		gtp_rw_bufp += strlen(gtp_rw_bufp);
+		gtp_rw_size += strlen(gtp_rw_bufp); /* This indicates that GTP_RW_BUFP_MAX is decreasing */
+		gtp_rw_bufp += strlen(gtp_rw_bufp); /* And the write pointer is forwarding */
 		break;
-	case 'g':
+	case 'g': /* Read general registers */
 		ret = gtp_gdbrsp_g();
 		break;
-	case 'm':
+	case 'm': /* Read length bytes of memory starting at address addr. Note that addr may not be aligned to any particular boundary */
 		ret = gtp_gdbrsp_m(rsppkg + 1);
 		break;
-	case 'Q':
+	case 'Q': /* General query (‘q’) and set (‘Q’) */
 #ifdef GTP_RB
 		/* This check for "tfind -1" and let GDB into step replay.
 		   XXX: just test on X86_64.  */
@@ -11920,9 +11940,9 @@ gtp_write(struct file *file, const char __user *buf, size_t size,
 #endif
 		if (rsppkg[1] == 'T')
 			ret = gtp_gdbrsp_QT(rsppkg + 2);
-		else if (strncmp("QStartNoAckMode", rsppkg, 15) == 0) {
+		else if (strncmp("QStartNoAckMode", rsppkg, 15) == 0) { /* Request that the remote stub disable the normal ‘+’/‘-’ protocol acknowledgments */
 			ret = 0;
-			gtp_noack_mode = -1;
+			gtp_noack_mode = -1; /* https://sourceware.org/gdb/current/onlinedocs/gdb/Packet-Acknowledgment.html#Packet-Acknowledgment */
 		}
 		break;
 	case 'q':
@@ -11971,18 +11991,18 @@ gtp_write(struct file *file, const char __user *buf, size_t size,
 			gtp_rw_bufp += 1;
 		}
 		break;
-	case 'S':
-	case 'C':
+	case 'S': /* Step with signal. This is analogous to the ‘C’ packet, but requests a single-step, rather than a normal resumption of execution */
+	case 'C': /* Continue with signal sig (hex signal number). If ‘;addr’ is omitted, resume at same address */
 		ret = -1;
 		break;
-	case 'b':
+	case 'b': /* Backward */
 		rsppkg[0] = rsppkg[1];
 		is_reverse = 1;
-	case 's':
-	case 'c':
+	case 's': /* Backward single step. Execute one instruction in reverse */
+	case 'c': /* Backward continue. Execute the target system in reverse */
 		ret = gtp_gdbrsp_resume (rsppkg[0] == 's', is_reverse);
 		break;
-	case 'v':
+	case 'v': /* Packets starting with ‘v’ are identified by a multi-letter name, up to the first ‘;’ or ‘?’ (or the end of the packet) */
 		if (strncmp("vAttach;", rsppkg, 8) == 0) {
 #ifdef GTP_RB
 			if (gtp_replay_step_id)
@@ -12001,7 +12021,7 @@ gtp_write(struct file *file, const char __user *buf, size_t size,
 			ret = 0;
 		}
 		break;
-	case 'D':
+	case 'D': /* detach GDB */
 #ifdef GTP_RB
 		if (gtp_replay_step_id)
 			gtp_replay_reset();
@@ -12009,11 +12029,11 @@ gtp_write(struct file *file, const char __user *buf, size_t size,
 		gtp_gdbrsp_D(rsppkg + 1);
 		ret = 0;
 		break;
-	case 'H':
+	case 'H': /* Set thread for subsequent operations (‘m’, ‘M’, ‘g’, ‘G’, et.al.) */
 		ret = gtp_gdbrsp_H(rsppkg + 1);
 		break;
 	case 'Z':
-	case 'z':
+	case 'z': /* Insert (‘Z’) or remove (‘z’) a type breakpoint or watchpoint starting at address address of kind kind */
 		if (rsppkg[1] == '0')
 			ret = gtp_gdbrsp_breakpoint(rsppkg + 3,
 						    (rsppkg[0] == 'Z'));
@@ -12030,17 +12050,17 @@ switch_done:
 		gtp_rw_size += 3;
 	}
 
-	gtp_rw_bufp[0] = '#';
+	gtp_rw_bufp[0] = '#'; /* Indicating the end of the reponse packet */
 	csum = 0;
-	for (i = 1; i < gtp_rw_size + 1; i++)
+	for (i = 1; i < gtp_rw_size + 1; i++) /* Calculate the checksum and add to the response packet */
 		csum += gtp_rw_buf[i];
 	gtp_rw_bufp[1] = INT2CHAR(csum >> 4);
 	gtp_rw_bufp[2] = INT2CHAR(csum & 0x0f);
-	gtp_rw_bufp = gtp_rw_buf;
+	gtp_rw_bufp = gtp_rw_buf; /* An communication is done, start over for the next by setting gtp_rw_bufp to the starting address, namely gtp_rw_buf */
 	gtp_rw_size += 4;
 
 out:
-	wake_up_interruptible_nr(&gtp_rw_wq, 1);
+	wake_up_interruptible_nr(&gtp_rw_wq, 1); /* Wake up the work queue */
 error_out:
 	up(&gtp_rw_lock);
 	return size;
@@ -12078,7 +12098,7 @@ gtp_read(struct file *file, char __user *buf, size_t size,
 	size = min(gtp_rw_size, size);
 	if (size == 0)
 		goto out;
-	if (copy_to_user(buf, gtp_rw_bufp, size)) {
+	if (copy_to_user(buf, gtp_rw_bufp, size)) { /* Copy the buffer of gtp_rw_bufp to user space */
 		size = -EFAULT;
 		goto out;
 	}
@@ -12102,7 +12122,7 @@ gtp_poll(struct file *file, poll_table *wait)
 	down(&gtp_rw_lock);
 	poll_wait(file, &gtp_rw_wq, wait);
 	if (gtp_read_ack || gtp_rw_size)
-		mask |= POLLIN | POLLRDNORM;
+		mask |= POLLIN | POLLRDNORM; /* There is data to read */
 	up(&gtp_rw_lock);
 
 	return mask;
@@ -13264,9 +13284,9 @@ gtp_plugin_mod_get(void)
 	struct gtp_plugin_mod	*plugin;
 	struct list_head	*cur;
 
-	list_for_each(cur, &gtp_plugin_mod_list) {
-		plugin = list_entry(cur, struct gtp_plugin_mod, node);
-		if (!try_module_get(plugin->mod))
+	list_for_each(cur, &gtp_plugin_mod_list) { /* Iterate through the plugin modules */
+		plugin = list_entry(cur, struct gtp_plugin_mod, node); 
+		if (!try_module_get(plugin->mod)) /* Increase the module reference counter */
 			printk(KERN_WARNING "Try to get KGTP plugin module fail.\n");
 	}
 }
@@ -13309,7 +13329,7 @@ out:
 	up(&gtp_rw_lock);
 	return ret;
 }
-EXPORT_SYMBOL(gtp_plugin_mod_register);
+EXPORT_SYMBOL(gtp_plugin_mod_register); /* Export the interface to other molules to let them to register */
 
 int
 gtp_plugin_mod_unregister(struct module *mod)
@@ -13535,7 +13555,7 @@ static int __init gtp_init(void)
 	gtp_start_last_errno = 0;
 	gtp_start_ignore_error = 0;
 	gtp_pipe_trace = 0;
-	gtp_bt_size = 512;
+	gtp_bt_size = 512; /* default backtrace size is 512 */
 	gtp_noack_mode = 0;
 #ifdef GTP_RB
 	gtp_traceframe_info = NULL;
@@ -13556,13 +13576,13 @@ static int __init gtp_init(void)
 #endif
 
 #ifdef GTP_RB
-	ret = gtp_rb_init();
+	ret = gtp_rb_init(); /* Initial Ring Buffer of KGTP */
 	if (ret != 0)
 		goto out;
 #endif
 
 	ret = -ENOMEM;
-	gtp_wq = create_singlethread_workqueue("gtpd");
+	gtp_wq = create_singlethread_workqueue("gtpd"); /* gtp work queue */
 	if (gtp_wq == NULL)
 		goto out;
 
@@ -13572,17 +13592,17 @@ static int __init gtp_init(void)
 		/* Get the task of "gtpd".  */
 		gtpd_task = NULL;
 		for_each_process (p) {
-			if (strcmp(p->comm, "gtpd") == 0) {
+			if (strcmp(p->comm, "gtpd") == 0) { /* p->comm is the name of current process */
 				if (gtpd_task != NULL)
 					printk(KERN_WARNING "KGTP: system have more than one gtpd.\n");
-				gtpd_task = p;
+				gtpd_task = p; /* Get the process of gtpd */
 			}
 		}
 		if (gtpd_task == NULL) {
 			printk(KERN_WARNING "KGTP: cannot get gtpd task.\n");
 			goto out;
 		}
-		gtp_current_pid = gtpd_task->pid;
+		gtp_current_pid = gtpd_task->pid; /* Set the gtpd pid */
 	}
 
 #ifdef USE_PROC
@@ -13597,7 +13617,7 @@ static int __init gtp_init(void)
 			&gtpframe_pipe_operations) == NULL)
 		goto out;
 #endif
-#else
+#else // #ifndef USE_PROC
 	ret = -ENODEV;
 	gtp_dir = debugfs_create_file("gtp", S_IRUSR | S_IWUSR, NULL,
 				      NULL, &gtp_operations);
@@ -13621,7 +13641,7 @@ static int __init gtp_init(void)
 		goto out;
 	}
 #endif
-#endif
+#endif // end for #ifdef USE_PROC
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,30))
 	gtp_modules_traceframe_info_need_get = 1;
@@ -13631,11 +13651,11 @@ static int __init gtp_init(void)
 		goto out;
 #endif
 
-	ret = gtp_var_special_add_all();
+	ret = gtp_var_special_add_all(); /* Add all TSVs */
 	if (ret)
 		goto out;
 
-	ret = 0;
+	ret = 0; /* Everything is OK */
 out:
 	if (ret < 0)
 		gtp_release_all_mod();
